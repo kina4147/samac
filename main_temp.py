@@ -37,18 +37,32 @@ def track_nuscenes(data_split):
   '''
   scene_splits = None
   version = None
+  # if 'mini_val' == data_split:
+  #   detection_file = '/Users/marco/Desktop/My/my_research/xyztracker/dataset/v1.0-mini/detection/megvii_val.json'
+  #   data_root = '/Users/marco/Desktop/My/my_research/xyztracker/dataset/v1.0-mini'
+  #   version = 'v1.0-mini'
+  #   output_path = '/Users/marco/Desktop/My/my_research/xyztracker/dataset/v1.0-mini/detection/megvii_mini_val.json'
+  #   scene_splits = splits.mini_val
+  # elif 'mini_train' == data_split:
+  #   detection_file = '/Users/marco/Desktop/My/my_research/xyztracker/dataset/v1.0-mini/detection/megvii_train.json'
+  #   data_root = '/Users/marco/Desktop/My/my_research/xyztracker/dataset/v1.0-mini'
+  #   version = 'v1.0-mini'
+  #   output_path = '/Users/marco/Desktop/My/my_research/xyztracker/dataset/v1.0-mini/detection/megvii_mini_train.json'
+  #   scene_splits = splits.mini_train
+
+
   if 'mini_val' == data_split:
-    detection_file = '/Users/marco/Desktop/My/my_research/xyztracker/dataset/v1.0-mini/detection/megvii_val.json'
-    data_root = '/Users/marco/Desktop/My/my_research/xyztracker/dataset/v1.0-mini'
-    version = 'v1.0-mini'
-    output_path = '/Users/marco/Desktop/My/my_research/xyztracker/dataset/v1.0-mini/detection/megvii_mini_val.json'
-    scene_splits = splits.mini_val
+      detection_file = '/media/marco/60348B1F348AF776/nuscene/detection/megvii_val.json'
+      data_root = '/media/marco/60348B1F348AF776/nuscene/raw/v1.0-mini'
+      version = 'v1.0-mini'
+      output_path = '/media/marco/60348B1F348AF776/nuscene/detection/megvii_mini_val.json'
+      scene_splits = splits.mini_val
   elif 'mini_train' == data_split:
-    detection_file = '/Users/marco/Desktop/My/my_research/xyztracker/dataset/v1.0-mini/detection/megvii_train.json'
-    data_root = '/Users/marco/Desktop/My/my_research/xyztracker/dataset/v1.0-mini'
-    version = 'v1.0-mini'
-    output_path = '/Users/marco/Desktop/My/my_research/xyztracker/dataset/v1.0-mini/detection/megvii_mini_train.json'
-    scene_splits = splits.mini_train
+      detection_file = '/media/marco/60348B1F348AF776/nuscene/detection/megvii_train.json'
+      data_root = '/media/marco/60348B1F348AF776/nuscene/raw/v1.0-mini'
+      version = 'v1.0-mini'
+      output_path = '/media/marco/60348B1F348AF776/nuscene/detection/megvii_mini_train.json'
+      scene_splits = splits.mini_train
   else:
     print('No Dataset Split', data_split)
     assert (False)
@@ -71,7 +85,12 @@ def track_nuscenes(data_split):
   processed_scene_tokens = set()
   results = {}
   for sample in nusc.sample:
+    scene_token = sample['scene_token']
+    scene = nusc.get('scene', scene_token)
+    if scene['name'] not in scene_splits:
+        continue
     if sample['token'] in all_results.sample_tokens:
+      print(scene['name'])
       results[sample['token']] = data['results'][sample['token']]
 
   # finished tracking all scenes, write output data

@@ -532,30 +532,30 @@ def track_nuscenes(data_split, covariance_id, match_distance, match_threshold, m
         version = 'v1.0-test'
         output_path = os.path.join(save_dir, 'results_test_probabilistic_tracking.json')
         scene_splits = splits.test
-    # elif 'mini_val' == data_split:
-    #     detection_file = '/media/marco/60348B1F348AF776/nuscene/detection/megvii_val.json'
-    #     data_root = '/media/marco/60348B1F348AF776/nuscene/raw/v1.0-mini'
-    #     version = 'v1.0-mini'
-    #     output_path = os.path.join(save_dir, 'results_test_probabilistic_tracking.json')
-    #     scene_splits = splits.mini_val
-    # elif 'mini_train' == data_split:
-    #     detection_file = '/media/marco/60348B1F348AF776/nuscene/detection/megvii_train.json'
-    #     data_root = '/media/marco/60348B1F348AF776/nuscene/raw/v1.0-mini'
-    #     version = 'v1.0-mini'
-    #     output_path = os.path.join(save_dir, 'results_test_probabilistic_tracking.json')
-    #     scene_splits = splits.mini_train
     elif 'mini_val' == data_split:
-        detection_file = '/Users/marco/Desktop/My/my_research/xyztracker/dataset/v1.0-mini/detection/megvii_mini_val.json'
-        data_root = '/Users/marco/Desktop/My/my_research/xyztracker/dataset/v1.0-mini'
+        detection_file = '/media/marco/60348B1F348AF776/nuscene/detection/megvii_mini_val.json'
+        data_root = '/media/marco/60348B1F348AF776/nuscene/raw/v1.0-mini'
         version = 'v1.0-mini'
         output_path = os.path.join(save_dir, 'results_mini_val_probabilistic_tracking.json')
         scene_splits = splits.mini_val
     elif 'mini_train' == data_split:
-        detection_file = '/Users/marco/Desktop/My/my_research/xyztracker/dataset/v1.0-mini/detection/megvii_mini_train.json'
-        data_root = '/Users/marco/Desktop/My/my_research/xyztracker/dataset/v1.0-mini'
+        detection_file = '/media/marco/60348B1F348AF776/nuscene/detection/megvii_mini_train.json'
+        data_root = '/media/marco/60348B1F348AF776/nuscene/raw/v1.0-mini'
         version = 'v1.0-mini'
         output_path = os.path.join(save_dir, 'results_mini_train_probabilistic_tracking.json')
         scene_splits = splits.mini_train
+    # elif 'mini_val' == data_split:
+    #     detection_file = '/Users/marco/Desktop/My/my_research/xyztracker/dataset/v1.0-mini/detection/megvii_mini_val.json'
+    #     data_root = '/Users/marco/Desktop/My/my_research/xyztracker/dataset/v1.0-mini'
+    #     version = 'v1.0-mini'
+    #     output_path = os.path.join(save_dir, 'results_mini_val_probabilistic_tracking.json')
+    #     scene_splits = splits.mini_val
+    # elif 'mini_train' == data_split:
+    #     detection_file = '/Users/marco/Desktop/My/my_research/xyztracker/dataset/v1.0-mini/detection/megvii_mini_train.json'
+    #     data_root = '/Users/marco/Desktop/My/my_research/xyztracker/dataset/v1.0-mini'
+    #     version = 'v1.0-mini'
+    #     output_path = os.path.join(save_dir, 'results_mini_train_probabilistic_tracking.json')
+    #     scene_splits = splits.mini_train
     else:
         print('No Dataset Split', data_split)
         assert(False)
@@ -586,7 +586,6 @@ def track_nuscenes(data_split, covariance_id, match_distance, match_threshold, m
         scene_token = nusc.get('sample', sample_token)['scene_token']
         if scene_token in processed_scene_tokens:
             continue
-        print(scene_token)
         first_sample_token = nusc.get('scene', scene_token)['first_sample_token']
         current_sample_token = first_sample_token
 
@@ -662,6 +661,7 @@ if __name__ == '__main__':
     match_algorithm = sys.argv[5]
     use_angular_velocity = sys.argv[6] == 'True' or sys.argv[6] == 'true'
     dataset = sys.argv[7]
+
     save_root = os.path.join('./' + sys.argv[8])
 
     if dataset == 'kitti':
