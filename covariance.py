@@ -102,5 +102,78 @@ class Covariance(object):
       self.P = {tracking_name: np.diag(P[tracking_name]) for tracking_name in NUSCENES_TRACKING_NAMES}
       self.Q = {tracking_name: np.diag(Q[tracking_name]) for tracking_name in NUSCENES_TRACKING_NAMES}
       self.R = {tracking_name: np.diag(R[tracking_name]) for tracking_name in NUSCENES_TRACKING_NAMES}
+
+
+
+    elif covariance_id == 3:
+      # nuscenes
+      # see get_nuscenes_stats.py for the details on  how the numbers come from
+      # Kalman Filter state: [x, y, z, rot_z, l, w, h, x_dot, y_dot, z_dot, rot_z_dot]
+
+      mP = {
+        'bicycle': [0.05390982, 0.05039431, 1.29464435, 0.06130649, 1.21635902],
+        'bus': [0.17546469, 0.13818929, 0.1979503, 0.175599858, 0.22529652],
+        'car': [0.08900372, 0.09412005, 1.00535696, 0.115581232, 0.99492726],
+        'motorcycle': [0.04052819, 0.0398904, 1.06442726, 0.061505764, 1.30414345],
+        'pedestrian': [0.03855275, 0.0377111, 2.0751833, 0.058906636, 2.0059979],
+        'trailer': [0.23228021, 0.22229261, 1.05163481, 0.290263582, 0.97082174],
+        'truck': [0.14862173, 0.1444596, 0.73122169, 0.148047001, 0.76188901]
+      }
+
+      mQ = {
+        'bicycle': [1.98881347e-02, 1.36552276e-02, 1.33430252e-01, 0.024124741, 1.33430252e-01],
+        'bus': [1.17729925e-01, 8.84659079e-02, 2.09050032e-01, 0.147263546, 2.09050032e-01],
+        'car': [1.58918523e-01, 1.24935318e-01, 9.22800791e-02, 0.202148289, 9.22800791e-02],
+        'motorcycle': [3.23647590e-02, 3.86650974e-02, 2.34967407e-01, 0.050422885, 2.34967407e-01],
+        'pedestrian': [3.34814566e-02, 2.47354921e-02, 4.24962535e-01, 0.041627545, 4.24962535e-01],
+        'trailer': [4.19985099e-02, 3.68661552e-02, 5.63166240e-02, 0.055883703, 5.63166240e-02],
+        'truck': [9.45275998e-02, 9.45620374e-02, 1.41680460e-01, 0.133706567, 1.41680460e-01]
+      }
+
+      mR = {
+        'bicycle': [0.05390982, 0.05039431, 1.29464435],
+        'bus': [0.17546469, 0.13818929, 0.1979503],
+        'car': [0.08900372, 0.09412005, 1.00535696],
+        'motorcycle': [0.04052819, 0.0398904, 1.06442726],
+        'pedestrian': [0.03855275, 0.0377111, 2.0751833],
+        'trailer': [0.23228021, 0.22229261, 1.05163481],
+        'truck': [0.14862173, 0.1444596, 0.73122169]
+      }
+      aP = {
+        'bicycle': [0.01863044, 0.02713823, 0.01169572, 0.01295084, 0.01725477],
+        'bus': [0.05947248, 0.78867322, 0.05507407, 0.06684149, 0.05033665],
+        'car': [0.03265469, 0.10912802, 0.02359175, 0.02455134, 0.02266425],
+        'motorcycle': [0.01511711, 0.03291016, 0.00957574, 0.0111605, 0.01465631],
+        'pedestrian': [0.02482115, 0.02286483, 0.0136347, 0.0203149, 0.01482923],
+        'trailer': [0.07006275, 1.37451601, 0.06354783, 0.10500918, 0.05231335],
+        'truck': [0.05417157, 0.69387238, 0.05484365, 0.07748085, 0.0378078]
+      }
+
+      aQ = {
+        'bicycle': [5.10175742e-03, 0, 0, 0, 5.10175742e-03],
+        'bus': [1.17616440e-02, 0, 0, 0, 1.17616440e-02],
+        'car': [5.35573165e-03, 0, 0, 0, 5.35573165e-03],
+        'motorcycle': [5.47421635e-03, 0, 0, 0, 5.47421635e-03],
+        'pedestrian': [5.94592529e-03, 0, 0, 0, 5.94592529e-03],
+        'trailer': [1.19415050e-02, 0, 0, 0, 1.19415050e-02],
+        'truck': [8.38061721e-03, 0, 0, 0, 8.38061721e-03]
+      }
+
+      aR = {
+        'bicycle': [0.01863044, 0.02713823, 0.01169572, 0.01295084],
+        'bus': [0.05947248, 0.78867322, 0.05507407, 0.06684149],
+        'car': [0.03265469, 0.10912802, 0.02359175, 0.02455134],
+        'motorcycle': [0.01511711, 0.03291016, 0.00957574, 0.0111605],
+        'pedestrian': [0.02482115, 0.02286483, 0.0136347, 0.0203149],
+        'trailer': [0.07006275, 1.37451601, 0.06354783, 0.10500918],
+        'truck': [0.05417157, 0.69387238, 0.05484365, 0.07748085]
+      }
+      self.mP = {tracking_name: np.diag(mP[tracking_name]) for tracking_name in NUSCENES_TRACKING_NAMES}
+      self.mQ = {tracking_name: np.diag(mQ[tracking_name]) for tracking_name in NUSCENES_TRACKING_NAMES}
+      self.mR = {tracking_name: np.diag(mR[tracking_name]) for tracking_name in NUSCENES_TRACKING_NAMES}
+      self.aP = {tracking_name: np.diag(aP[tracking_name]) for tracking_name in NUSCENES_TRACKING_NAMES}
+      self.aQ = {tracking_name: np.diag(aQ[tracking_name]) for tracking_name in NUSCENES_TRACKING_NAMES}
+      self.aR = {tracking_name: np.diag(aR[tracking_name]) for tracking_name in NUSCENES_TRACKING_NAMES}
+
     else:
       assert(False)

@@ -1,43 +1,52 @@
 import numpy as np
+from filterpy.kalman import unscented_transform
 from filterpy.kalman import (KalmanFilter, ExtendedKalmanFilter, UnscentedKalmanFilter)
 from filterpy.kalman import (unscented_transform, MerweScaledSigmaPoints, JulierSigmaPoints)
 from filterpy.kalman import IMMEstimator
 import motion_models as mm
 from covariance import Covariance
+from utils import angle_in_range
 
-def angle_in_range(angle):
-    '''
-    Input angle: -2pi ~ 2pi
-    Output angle: -pi ~ pi
-    '''
-    if angle > np.pi:
-        angle -= 2 * np.pi
-    if angle < -np.pi:
-        angle += 2 * np.pi
-    return angle
-
-
-class Tracker(object):
+class TrackerInfo(object):
     count = 0
-    def __init__(self, info, model=None, track_score=None, tracking_name='car'):
 
-        self.model = model
-
-        self.id = Tracker.count
-        self.yaw_pos = 3
-        Tracker.count += 1
-        self.history = []
+    def __init__(self, info, track_score=None, tracking_name='car'):
+        self.id = TrackerInfo.count
+        TrackerInfo.count += 1
         self.time_since_update = 0
         self.hits = 1  # number of total hits including the first detection
         self.hit_streak = 1  # number of continuing hit considering the first detection
         self.first_continuing_hit = 1
         self.still_first = True
         self.age = 0
-
-
         self.info = info  # other info
         self.track_score = track_score
         self.tracking_name = tracking_name
+
+    def predict(self):
+        self.age += 1
+        if self.time_since_update > 0:
+            self.hit_streak = 0
+            self.still_first = False
+        self.time_since_update += 1
+
+    def update(self, info, track_score):
+        self.time_since_update = 0
+        self.history = []
+        self.hits += 1
+        self.hit_streak += 1  # number of continuing hit
+        if self.still_first:
+            self.first_continuing_hit += 1  # number of continuing hit in the fist time
+
+        self.info = info
+        self.track_score = track_score
+
+
+class Tracker(object):
+    def __init__(self, model=None):
+        self.model = model
+        self.yaw_pos = 2
+        self.history = []
         self.filter = None
 
     def predict(self, dt=1.0):
@@ -51,17 +60,16 @@ class Tracker(object):
         """
         Returns the current bounding box estimate.
         """
-        return self.filter.x[:self.dim_x].reshape((self.dim_x,))
+        return self.filter.x[:self.model.dim_z].reshape((-1, 1))
 
 class KFTracker(Tracker):
-    def __init__(self, z, info, model=None, track_score=None, tracking_name='car'):
-        super().__init__(info, model, track_score, tracking_name)
+    def __init__(self, z, model=None, tracking_name='car'):
+        super().__init__(model)
         self.filter = KalmanFilter(dim_x=self.model.dim_x, dim_z=self.model.dim_z)
-
-        covariance = Covariance(2)
-        self.filter.P = covariance.P[self.tracking_name]
-        self.filter.Q = covariance.Q[self.tracking_name]
-        self.filter.R = covariance.R[self.tracking_name]
+        covariance = Covariance(3)
+        self.filter.P = covariance.aP[tracking_name]
+        self.filter.Q = covariance.aQ[tracking_name]
+        self.filter.R = covariance.aR[tracking_name]
         self.filter.x[:self.model.dim_z] = z.reshape((self.model.dim_z, 1))
         self.filter.F = np.eye(self.model.dim_x) + np.eye(self.model.dim_x, k=self.model.dim_z)
         self.filter.H = np.eye(self.model.dim_z, self.model.dim_x)
@@ -72,25 +80,16 @@ class KFTracker(Tracker):
         """
         self.filter.predict(dt)
         self.filter.x[self.yaw_pos] = angle_in_range(self.filter.x[self.yaw_pos])
+
         PHT = np.dot(self.filter.P, self.filter.H.T)
         S = np.dot(self.filter.H, PHT) + self.filter.R
         pred_z = np.dot(self.filter.H, self.filter.x)
-        self.age += 1
-        if self.time_since_update > 0:
-            self.hit_streak = 0
-            self.still_first = False
-        self.time_since_update += 1
+
         self.history.append(self.filter.x)
         return pred_z, S # self.filter.x # self.history[-1]
 
-    def update(self, z, info):
-
-        self.time_since_update = 0
+    def update(self, z):
         self.history = []
-        self.hits += 1
-        self.hit_streak += 1  # number of continuing hit
-        if self.still_first:
-            self.first_continuing_hit += 1  # number of continuing hit in the fist time
 
         dyaw = z[self.yaw_pos] - self.filter.x[self.yaw_pos]
         dyaw = angle_in_range(dyaw)
@@ -100,32 +99,79 @@ class KFTracker(Tracker):
 
         self.filter.update(z)
         self.filter.x[self.yaw_pos] = angle_in_range(self.filter.x[self.yaw_pos])
-        self.info = info
 
 
-    def get_state(self):
+
+class UKFTracker(Tracker):
+
+    def __init__(self, z, model=None, tracking_name='car', dt=1.0):
+        super().__init__(model)
+        # self.filter = KalmanFilter(dim_x=self.model.dim_x, dim_z=self.model.dim_z)
+        # sp = MerweScaledSigmaPoints(n=self.model.dim_x, alpha=0.001, beta=2.0, kappa=0.0)
+        sp = JulierSigmaPoints(n=self.model.dim_x, kappa=0.0)
+        self.filter = UnscentedKalmanFilter(dim_x=self.model.dim_x, dim_z=self.model.dim_z, dt=dt, fx=self.model.fx, hx=self.model.hx, residual_x=self.model.residual_fn, residual_z=self.model.residual_fn, points=sp)
+
+        covariance = Covariance(3)
+        self.filter.P = covariance.mP[tracking_name]
+        self.filter.Q = covariance.mQ[tracking_name]
+        self.filter.R = covariance.mR[tracking_name]
+        self.filter.x[:self.model.dim_z] = z
+
+
+    def predict(self, dt=1.0):
         """
-        Returns the current bounding box estimate.
+        Advances the state vector and returns the predicted bounding box estimate.
         """
-        return self.filter.x[:self.model.dim_z].reshape((self.model.dim_z,))
+        self.filter.predict(dt)
+        self.filter.x[self.yaw_pos] = angle_in_range(self.filter.x[self.yaw_pos])
 
-# class UKFTracker(Tracker):
-#     def __init__(self, dt=0.1, model=None):
-#         sp = JulierSigmaPoints(n=model.dim_x, kappa=1.0)
-#         self.filter = UnscentedKalmanFilter(dim_x=model.dim_x, dim_z=model.dim_z, dt=dt, fx=model.fx, hx=model.hx, points=sp)
-#
-#
-# class IMMTracker(Tracker):
-#     def __init__(self, models = None):
-#         self.filters = []
-#         pass
-#
-#     def predict(self, dt=0.1):
-#         for filter in self.filters:
-#             filter.predict(dt)
-#
-#     def update(self, bbox3D, info):
-#
+        sigmas_h = []
+        for s in self.filter.sigmas_f:
+            sigmas_h.append(self.model.hx(s))
+        sigmas_h = np.atleast_2d(sigmas_h)
+        pred_z, S = unscented_transform(sigmas=sigmas_h, Wm=self.filter.Wm, Wc=self.filter.Wc, noise_cov=self.filter.R, residual_fn=self.model.residual_fn)
+        pred_z[self.yaw_pos] = angle_in_range(pred_z[self.yaw_pos])
+        self.history.append(self.filter.x)
+        return pred_z.reshape((-1, 1)), S # self.filter.x # self.history[-1]
+
+    def update(self, z):
+        self.history = []
+        z[self.yaw_pos] = angle_in_range(z[self.yaw_pos])
+        dyaw = z[self.yaw_pos] - self.filter.x[self.yaw_pos]
+        dyaw = angle_in_range(dyaw)
+        if abs(np.pi - abs(dyaw)) <= np.pi / 6.0: # 30 deg (
+            z[self.yaw_pos] += np.pi
+            z[self.yaw_pos] = angle_in_range(z[self.yaw_pos])
+
+        self.filter.update(z)
+        self.filter.x[self.yaw_pos] = angle_in_range(self.filter.x[self.yaw_pos])
+
+
+
+class IMMTracker(Tracker):
+    def __init__(self, z, models=None, tracking_name='car', dt=1.0):
+        super().__init__(models)
+        self.filters = []
+        for m in models:
+            sp = JulierSigmaPoints(n=self.model.dim_x, kappa=0.0)
+            filter = UnscentedKalmanFilter(dim_x=self.model.dim_x, dim_z=self.model.dim_z, dt=dt, fx=self.model.fx, hx=self.model.hx, residual_x=self.model.residual_fn, residual_z=self.model.residual_fn, points=sp)
+            covariance = Covariance(3)
+            filter.P = covariance.mP[tracking_name]
+            filter.Q = covariance.mQ[tracking_name]
+            filter.R = covariance.mR[tracking_name]
+            filter.x[:self.model.dim_z] = z
+            self.filters.append(filter)
+
+
+
+        pass
+
+    def predict(self, dt=0.1):
+        for filter in self.filters:
+            filter.predict(dt)
+
+    def update(self, bbox3D, info):
+        pass
 
 
 # class KalmanBoxTracker(object):

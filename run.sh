@@ -28,3 +28,9 @@ python evaluate_nuscenes.py ~/datmo/src/data/results/nuscene/sm_rm/results.json 
 
 
 python evaluate_nuscenes.py --output_dir results/000008 --dataroot /media/marco/60348B1F348AF776/nuscene/raw/v1.0-mini/ --config_path eval/tracking_nips_2019.json  --version v1.0-mini --eval_set mini_val --result_path results/000008/mini_val/results_mini_val_probabilistic_tracking.json > results/000008/output.txt
+
+
+python evaluate.py --render_classes car --output_dir results/000008 --dataroot /media/marco/60348B1F348AF776/nuscene/raw/v1.0-mini/ --config_path eval/tracking_nips_2019.json  --version v1.0-mini --eval_set mini_val --result_path results/000008/mini_val/results_mini_val_probabilistic_tracking.json > results/000008/output.txt
+
+python evaluate.py --output_dir results/000001 --dataroot /media/marco/60348B1F348AF776/nuscene/raw/v1.0-mini/ --config_path eval/tracking_nips_2019.json  --version v1.0-mini --eval_set mini_val --result_path results/000001/mini_val/results_mini_val_probabilistic_tracking.json > results/000001/output.txt
+python evaluate.py --output_dir results/000008 --dataroot /media/marco/60348B1F348AF776/nuscene/raw/v1.0-mini/ --config_path eval/tracking_nips_2019.json  --version v1.0-mini --eval_set mini_val --result_path results/000008/mini_val/results_mini_val_probabilistic_tracking.json > results/000008/output.txt
