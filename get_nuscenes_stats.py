@@ -2,7 +2,7 @@ import os
 import sys
 
 import numpy as np
-from utils import iou3d, convert_3dbox_to_8corner
+# from utils import iou3d, convert_3dbox_to_8corner
 from sklearn.utils.linear_assignment_ import linear_assignment
 
 from nuscenes import NuScenes
@@ -14,6 +14,7 @@ from nuscenes.eval.tracking.data_classes import TrackingBox
 from nuscenes.eval.common.loaders import load_prediction, load_gt, add_center_dist, filter_eval_boxes
 from nuscenes.eval.tracking.loaders import create_tracks
 from pyquaternion import Quaternion
+from utils import angle_in_range, corners, bbox_iou2d, bbox_iou3d, bbox_adjacency_2d
 
 import argparse
 
@@ -99,9 +100,12 @@ def get_mean(tracks):
 
         #print(det_data)
         gt_box_data[box.tracking_name].append(box_data)
-        
 
-  gt_box_data = {tracking_name: np.stack(gt_box_data[tracking_name], axis=0) for tracking_name in NUSCENES_TRACKING_NAMES}
+  for tracking_name in NUSCENES_TRACKING_NAMES:
+    if len(gt_box_data[tracking_name]):
+      gt_box_data[tracking_name] = np.stack(gt_box_data[tracking_name], axis=0)
+
+  # gt_box_data = {tracking_name: np.stack(gt_box_data[tracking_name], axis=0) for tracking_name in NUSCENES_TRACKING_NAMES}
 
   mean = {tracking_name: np.mean(gt_box_data[tracking_name], axis=0) for tracking_name in NUSCENES_TRACKING_NAMES}
   std = {tracking_name: np.std(gt_box_data[tracking_name], axis=0) for tracking_name in NUSCENES_TRACKING_NAMES}
@@ -139,7 +143,6 @@ def matching_and_get_diff_stats(pred_boxes, gt_boxes, tracks_gt, matching_dist):
       sample_token = box.sample_token
 
       for tracking_name in NUSCENES_TRACKING_NAMES:
-    
         #print('t: ', t)
         gt_all = [box for box in gt_boxes.boxes[sample_token] if box.tracking_name == tracking_name]
         if len(gt_all) == 0:
@@ -165,12 +168,12 @@ def matching_and_get_diff_stats(pred_boxes, gt_boxes, tracks_gt, matching_dist):
         gts = gts[:, reorder]
 
         if matching_dist == '3d_iou':
-          dets_8corner = [convert_3dbox_to_8corner(det_tmp) for det_tmp in dets]
-          gts_8corner = [convert_3dbox_to_8corner(gt_tmp) for gt_tmp in gts]
+          dets_8corner = [corners(det_tmp) for det_tmp in dets]
+          gts_8corner = [corners(gt_tmp) for gt_tmp in gts]
           iou_matrix = np.zeros((len(dets_8corner),len(gts_8corner)),dtype=np.float32)
           for d,det in enumerate(dets_8corner):
             for g,gt in enumerate(gts_8corner):
-              iou_matrix[d,g] = iou3d(det,gt)[0]
+              iou_matrix[d,g] = bbox3d_iou3d(det,gt)[0]
           #print('iou_matrix: ', iou_matrix)
           distance_matrix = -iou_matrix
           threshold = -0.1
@@ -184,7 +187,6 @@ def matching_and_get_diff_stats(pred_boxes, gt_boxes, tracks_gt, matching_dist):
           assert(False) 
 
         matched_indices = linear_assignment(distance_matrix)
-        #print('matched_indices: ', matched_indices)
         dets = dets[:, reorder_back]
         gts = gts[:, reorder_back]
         for pair_id in range(matched_indices.shape[0]):
@@ -204,16 +206,34 @@ def matching_and_get_diff_stats(pred_boxes, gt_boxes, tracks_gt, matching_dist):
               diff_vel[tracking_name].append(diff_vel_value)
 
 
+  mean = {tracking_name: [] for tracking_name in NUSCENES_TRACKING_NAMES} # [h, w, l, x, y, z, a]
+  std = {tracking_name: [] for tracking_name in NUSCENES_TRACKING_NAMES} # [x_dot, y_dot, z_dot, a_dot]
+  var = {tracking_name: [] for tracking_name in NUSCENES_TRACKING_NAMES} # [h, w, l, x, y, z, a]
+  mean_vel = {tracking_name: [] for tracking_name in NUSCENES_TRACKING_NAMES} # [x_dot, y_dot, z_dot, a_dot]
+  std_vel = {tracking_name: [] for tracking_name in NUSCENES_TRACKING_NAMES} # [h, w, l, x, y, z, a]
+  var_vel = {tracking_name: [] for tracking_name in NUSCENES_TRACKING_NAMES} # [x_dot, y_dot, z_dot, a_dot]
+  for tracking_name in NUSCENES_TRACKING_NAMES:
+    if len(diff[tracking_name]):
+      diff[tracking_name] = np.stack(diff[tracking_name], axis=0)
+      mean[tracking_name] = np.mean(diff[tracking_name], axis=0)
+      std[tracking_name] = np.std(diff[tracking_name], axis=0)
+      var[tracking_name] = np.var(diff[tracking_name], axis=0)
+    if len(diff_vel[tracking_name]):
+      diff_vel[tracking_name] = np.stack(diff_vel[tracking_name], axis=0)
+      mean_vel[tracking_name] = np.mean(diff_vel[tracking_name], axis=0)
+      std_vel[tracking_name] = np.std(diff_vel[tracking_name], axis=0)
+      var_vel[tracking_name] = np.var(diff_vel[tracking_name], axis=0)
 
-  diff = {tracking_name: np.stack(diff[tracking_name], axis=0) for tracking_name in NUSCENES_TRACKING_NAMES}
-  mean = {tracking_name: np.mean(diff[tracking_name], axis=0) for tracking_name in NUSCENES_TRACKING_NAMES}
-  std = {tracking_name: np.std(diff[tracking_name], axis=0) for tracking_name in NUSCENES_TRACKING_NAMES}
-  var = {tracking_name: np.var(diff[tracking_name], axis=0) for tracking_name in NUSCENES_TRACKING_NAMES}
-  
-  diff_vel = {tracking_name: np.stack(diff_vel[tracking_name], axis=0) for tracking_name in NUSCENES_TRACKING_NAMES}
-  mean_vel = {tracking_name: np.mean(diff_vel[tracking_name], axis=0) for tracking_name in NUSCENES_TRACKING_NAMES}
-  std_vel = {tracking_name: np.std(diff_vel[tracking_name], axis=0) for tracking_name in NUSCENES_TRACKING_NAMES}
-  var_vel = {tracking_name: np.var(diff_vel[tracking_name], axis=0) for tracking_name in NUSCENES_TRACKING_NAMES}
+
+  # diff = {tracking_name: np.stack(diff[tracking_name], axis=0) for tracking_name in NUSCENES_TRACKING_NAMES}
+  # mean = {tracking_name: np.mean(diff[tracking_name], axis=0) for tracking_name in NUSCENES_TRACKING_NAMES}
+  # std = {tracking_name: np.std(diff[tracking_name], axis=0) for tracking_name in NUSCENES_TRACKING_NAMES}
+  # var = {tracking_name: np.var(diff[tracking_name], axis=0) for tracking_name in NUSCENES_TRACKING_NAMES}
+  #
+  # diff_vel = {tracking_name: np.stack(diff_vel[tracking_name], axis=0) for tracking_name in NUSCENES_TRACKING_NAMES}
+  # mean_vel = {tracking_name: np.mean(diff_vel[tracking_name], axis=0) for tracking_name in NUSCENES_TRACKING_NAMES}
+  # std_vel = {tracking_name: np.std(diff_vel[tracking_name], axis=0) for tracking_name in NUSCENES_TRACKING_NAMES}
+  # var_vel = {tracking_name: np.var(diff_vel[tracking_name], axis=0) for tracking_name in NUSCENES_TRACKING_NAMES}
 
   return mean, std, var, mean_vel, std_vel, var_vel
 
@@ -243,18 +263,26 @@ if __name__ == '__main__':
     with open(config_path, 'r') as _f:
       cfg_ = DetectionConfig.deserialize(json.load(_f))
 
-  if 'train' in eval_set_:
+  if 'train' == eval_set_:
     detection_file = '/juno/u/hkchiu/dataset/nuscenes_new/megvii_train.json'
     data_root = '/juno/u/hkchiu/dataset/nuscenes/trainval'
     version='v1.0-trainval'
-  elif 'val' in eval_set_:
+  elif 'val' == eval_set_:
     detection_file = '/juno/u/hkchiu/dataset/nuscenes_new/megvii_val.json'
     data_root = '/juno/u/hkchiu/dataset/nuscenes/trainval'
     version='v1.0-trainval'
-  elif 'test' in eval_set_:
+  elif 'test' == eval_set_:
     detection_file = '/juno/u/hkchiu/dataset/nuscenes_new/megvii_test.json'
     data_root = '/juno/u/hkchiu/dataset/nuscenes/test'
     version='v1.0-test'
+  elif 'mini_val' == eval_set_:
+    detection_file = '/Users/marco/Desktop/My/my_research/xyztracker/dataset/v1.0-mini/detection/megvii_mini_val.json'
+    data_root = '/Users/marco/Desktop/My/my_research/xyztracker/dataset/v1.0-mini'
+    version = 'v1.0-mini'
+  elif 'mini_train' == eval_set_:
+    detection_file = '/Users/marco/Desktop/My/my_research/xyztracker/dataset/v1.0-mini/detection/megvii_mini_train.json'
+    data_root = '/Users/marco/Desktop/My/my_research/xyztracker/dataset/v1.0-mini'
+    version = 'v1.0-mini'
 
   nusc = NuScenes(version=version, dataroot=data_root, verbose=True)
 
