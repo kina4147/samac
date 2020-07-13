@@ -1,19 +1,4 @@
 import numpy as np
-import copy
-
-yaw_pos = 2
-def angle_in_range(angle):
-    '''
-    Input angle: -2pi ~ 2pi
-    Output angle: -pi ~ pi
-    '''
-    while angle > np.pi:
-        angle -= 2 * np.pi
-    while angle < -np.pi:
-        angle += 2 * np.pi
-    return angle
-
-
 # CV w/ heading : x, y, rz, v, vrz
 def cv_fx(x, dt):
     px = np.copy(x)
@@ -28,7 +13,7 @@ def cv_fx(x, dt):
 # CTPV w/ heading : x, y, rz, v, vrz
 def ctpv_fx(x, dt):
     px = np.copy(x)
-    if np.absolute(x[4]) > 0.01:
+    if np.absolute(x[4]) > 0.0001:
         px[0] = x[0] + 2.0 * x[3] / x[4] * np.sin(0.5 * x[4] * dt) * np.cos(x[2] + 0.5 * x[4] * dt)
         px[1] = x[1] + 2.0 * x[3] / x[4] * np.sin(0.5 * x[4] * dt) * np.sin(x[2] + 0.5 * x[4] * dt)
         px[2] = x[2] + dt * px[4]
@@ -46,7 +31,7 @@ def ctpv_fx(x, dt):
 # CTRV w/ heading : x, y, rz, v, vrz
 def ctrv_fx(x, dt):
     px = np.copy(x)
-    if np.absolute(x[4]) > 0.01:
+    if np.absolute(x[4]) > 0.0001:
         px[0] = x[0] + (x[3] / x[4]) * (np.sin(x[2] + dt * x[4]) - np.sin(x[2]))
         px[1] = x[1] + (x[3] / x[4]) * (-np.cos(x[2] + dt * x[4]) + np.cos(x[2]))
         px[2] = x[2] + dt * px[4]
@@ -68,12 +53,13 @@ def rm_fx(x, dt):
     px[2] = x[2]
     px[3] = 0
     px[4] = 0
+    return px
 
 # old => 0: x, 1: y, 2: x', 3: y', 4: v, 5: theta, 6: theta'
 # new => 0: x, 1: y, 2: theta, 3: v, 4: theta', 5: x', 6: y'
 def aug_ctcv_fx(x, dt):
     px = x.copy()
-    if np.absolute(x[4]) > 0.01:
+    if np.absolute(x[4]) > 0.0001:
         px[0] = x[0] + x[5]/x[4]*np.sin(x[4]*dt) - x[6]/x[4]*(1 - np.cos(x[4]*dt))
         px[1] = x[1] + x[5]/x[4]*(1 - np.cos(x[4]*dt)) + x[6]/x[4]*np.sin(x[4]*dt)
         px[4] = x[4]
@@ -92,7 +78,7 @@ def aug_ctcv_fx(x, dt):
 
 def aug_ctpv_fx(x, dt):
     px = x.copy()
-    if np.absolute(x[4]) > 0.01:
+    if np.absolute(x[4]) > 0.0001:
         px[0] = x[0] + 2.0 * x[3] / x[4] * np.sin(0.5 * x[4] * dt) * np.cos(x[2] + 0.5 * x[4] * dt)
         px[1] = x[1] + 2.0 * x[3] / x[4] * np.sin(0.5 * x[4] * dt) * np.sin(x[2] + 0.5 * x[4] * dt)
         px[2] = x[2] + dt * x[4]

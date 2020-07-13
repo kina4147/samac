@@ -16,7 +16,7 @@ from tqdm import tqdm
 
 
 from nuscenes.utils.data_classes import LidarPointCloud
-from tracker import TrackerInfo, KFTracker, UKFTracker
+from tracker import TrackerInfo, KFTracker, UKFTracker, IMMTracker
 from collections import namedtuple
 from nuscenes.utils import splits
 import motion_models as mm
@@ -29,7 +29,7 @@ from utils import angle_in_range, corners, bbox_iou2d, bbox_iou3d, bbox_adjacenc
 
 AB3DMOTTracker = namedtuple('AB3DMOTTracker', ['info', 'tracker'])
 SAMACTracker = namedtuple('SAMACTracker', ['info', 'mtracker', 'atracker'])
-MotionModel = namedtuple('MotionModel', ['dim_x', 'dim_z', 'model', 'fx', 'hx', 'residual_fn'])
+MotionModel = namedtuple('MotionModel', ['model', 'fx', 'hx', 'residual_fn', 'mode_prob', 'transition_prob'])
 
 NUSCENES_TRACKING_NAMES = [
     'bicycle',
@@ -40,7 +40,15 @@ NUSCENES_TRACKING_NAMES = [
     'trailer',
     'truck'
 ]
-
+# NUSCENES_TRACKING_NAMES = [
+#     'bicycle',
+#     'bus',
+#     'car',
+#     'motorcycle',
+#     'pedestrian',
+#     'trailer',
+#     'truck'
+# ]
 
 def format_sample_result(sample_token, tracking_name, tracker):
     '''
@@ -348,8 +356,11 @@ class AB3DMOT(object):
         trks_S = []
         to_del = []
         ret = []
+
+        trcks_x = []
         # PREDICTION
         for t, trk in enumerate(self.trackers):
+
             trk.info.predict()
             a_pred_z, a_S = trk.atracker.predict()
             m_pred_z, m_S = trk.mtracker.predict()
@@ -360,12 +371,14 @@ class AB3DMOT(object):
                 S = block_diag(m_S, a_S)
                 trks.append(pred_z.squeeze())
                 trks_S.append(S)
+                trcks_x.append(trk.mtracker.filter.x)
         for t in reversed(to_del):
             self.trackers.pop(t)
 
         if len(trks) > 0:
             trks = np.stack(trks, axis=0)
             trks_S = np.stack(trks_S, axis=0)
+            # print(self.tracking_name, np.max(trcks_x, axis=0))
 
         # DATA ASSOCIATION
         if match_distance == 'iou':
@@ -401,11 +414,21 @@ class AB3DMOT(object):
         # create and initialise new trackers for unmatched detections
         for i in unmatched_dets:  # a scalar of index
             tracker_info = TrackerInfo(info[i, :], info[i][-1], self.tracking_name)
-            amodel = MotionModel(5, 4, 'cv', None, None, None)
-            atracker = KFTracker(dets[i, 3:7], amodel, self.tracking_name)
-            mmodel = MotionModel(5, 3, 'cv', mm.cv_fx, mm.hx, mm.residual)
-            mtracker = UKFTracker(dets[i, 0:3], mmodel, self.tracking_name)
+
+
+
+            amodel = MotionModel('cv', None, None, None, None, None)
+            atracker = KFTracker(z=dets[i, 3:7], dim_x=5, dim_z=4, yaw_pos=2, model=amodel, tracking_name=self.tracking_name)
+            mmodel = []
+            # MotionModel = namedtuple('MotionModel', ['model', 'fx', 'hx', 'residual_fn', 'mode_prob', 'transition_prob'])
+            mmodel.append(MotionModel('cv', mm.cv_fx, mm.hx, mm.residual, 0.3, 0.96))
+            mmodel.append(MotionModel('ctrv', mm.ctrv_fx, mm.hx, mm.residual, 0.3, 0.96))
+            mmodel.append(MotionModel('rm', mm.rm_fx, mm.hx, mm.residual, 0.4, 0.96))
+            mtracker = IMMTracker(z=dets[i, 0:3], dim_x=5, dim_z=3, yaw_pos=2, model=mmodel, tracking_name=self.tracking_name)
             trk = SAMACTracker(tracker_info, mtracker, atracker)
+
+
+
             self.trackers.append(trk)
 
 
@@ -471,36 +494,36 @@ def track_nuscenes(data_split, covariance_id, match_distance, match_threshold, m
         version = 'v1.0-test'
         output_path = os.path.join(save_dir, 'results.json')
         scene_splits = splits.test
+    # elif 'mini_val' == data_split:
+    #     detection_file = '/media/marco/60348B1F348AF776/nuscene/detection/megvii_mini_val.json'
+    #     data_root = '/media/marco/60348B1F348AF776/nuscene/raw/v1.0-mini'
+    #     version = 'v1.0-mini'
+    #     output_path = os.path.join(save_dir, 'results.json')
+    #     scene_splits = splits.mini_val
+    # elif 'mini_train' == data_split:
+    #     detection_file = '/media/marco/60348B1F348AF776/nuscene/detection/megvii_mini_train.json'
+    #     data_root = '/media/marco/60348B1F348AF776/nuscene/raw/v1.0-mini'
+    #     version = 'v1.0-mini'
+    #     output_path = os.path.join(save_dir, 'results.json')
+    #     scene_splits = splits.mini_train
     elif 'mini_val' == data_split:
-        detection_file = '/media/marco/60348B1F348AF776/nuscene/detection/megvii_mini_val.json'
-        data_root = '/media/marco/60348B1F348AF776/nuscene/raw/v1.0-mini'
+        detection_file = '/Users/marco/Desktop/My/my_research/xyztracker/dataset/v1.0-mini/detection/megvii_mini_val.json'
+        data_root = '/Users/marco/Desktop/My/my_research/xyztracker/dataset/v1.0-mini'
         version = 'v1.0-mini'
         output_path = os.path.join(save_dir, 'results.json')
         scene_splits = splits.mini_val
     elif 'mini_train' == data_split:
-        detection_file = '/media/marco/60348B1F348AF776/nuscene/detection/megvii_mini_train.json'
-        data_root = '/media/marco/60348B1F348AF776/nuscene/raw/v1.0-mini'
+        detection_file = '/Users/marco/Desktop/My/my_research/xyztracker/dataset/v1.0-mini/detection/megvii_mini_train.json'
+        data_root = '/Users/marco/Desktop/My/my_research/xyztracker/dataset/v1.0-mini'
         version = 'v1.0-mini'
         output_path = os.path.join(save_dir, 'results.json')
         scene_splits = splits.mini_train
-    # elif 'mini_val' == data_split:
-    #     detection_file = '/Users/marco/Desktop/My/my_research/xyztracker/dataset/v1.0-mini/detection/megvii_mini_val.json'
-    #     data_root = '/Users/marco/Desktop/My/my_research/xyztracker/dataset/v1.0-mini'
-    #     version = 'v1.0-mini'
-    #     output_path = os.path.join(save_dir, 'results_mini_val_probabilistic_tracking.json')
-    #     scene_splits = splits.mini_val
-    # elif 'mini_train' == data_split:
-    #     detection_file = '/Users/marco/Desktop/My/my_research/xyztracker/dataset/v1.0-mini/detection/megvii_mini_train.json'
-    #     data_root = '/Users/marco/Desktop/My/my_research/xyztracker/dataset/v1.0-mini'
-    #     version = 'v1.0-mini'
-    #     output_path = os.path.join(save_dir, 'results_mini_train_probabilistic_tracking.json')
-    #     scene_splits = splits.mini_train
     else:
         print('No Dataset Split', data_split)
         assert(False)
     nusc = NuScenes(version=version, dataroot=data_root, verbose=True)
-    point_on = False
-    viz_on = False
+    point_on = True
+    viz_on = True
     results = {}
 
     total_time = 0.0
@@ -577,17 +600,19 @@ def track_nuscenes(data_split, covariance_id, match_distance, match_threshold, m
 
                 # x, y, z, yaw, w, l, h
                 yaw = quaternion_yaw(Quaternion(dbox.rotation))
+                # q = Quaternion(dbox.rotation)
+                # yaw = q.angle if q.axis[2] > 0 else -q.angle
                 detection = np.array([dbox.translation[0], dbox.translation[1], dbox.translation[2], yaw, dbox.size[0], dbox.size[1], dbox.size[2]])
-                box = Box(dbox.translation, dbox.size, Quaternion(yaw))
+                box = Box(dbox.translation, dbox.size, Quaternion(dbox.rotation))
                 # point in box ###########################################
-                if point_on:
-                    # Create Box instance.
-                    box.translate(-np.array(pose_record["translation"]))
-                    box.rotate(Quaternion(pose_record["rotation"]).inverse)
-                    box.translate(-np.array(cs_record["translation"]))
-                    box.rotate(Quaternion(cs_record["rotation"]).inverse)
-                    mask = points_in_box(box, lidar_points.points[0:3, :], wlh_factor=1.0)
-                    pts[dbox.detection_name].append(lidar_points.points[0:3, mask])
+                # if point_on:
+                #     # Create Box instance.
+                #     box.translate(-np.array(pose_record["translation"]))
+                #     box.rotate(Quaternion(pose_record["rotation"]).inverse)
+                #     box.translate(-np.array(cs_record["translation"]))
+                #     box.rotate(Quaternion(cs_record["rotation"]).inverse)
+                #     mask = points_in_box(box, lidar_points.points[0:3, :], wlh_factor=1.0)
+                #     pts[dbox.detection_name].append(lidar_points.points[0:3, mask])
                 ##########################################################
 
                 # information = np.array([dbox.detection_score])
@@ -595,13 +620,13 @@ def track_nuscenes(data_split, covariance_id, match_distance, match_threshold, m
                 info[dbox.detection_name].append(np.array([dbox.detection_score])) # detection score
                 dboxes[dbox.detection_name].append(box)
 
-            if point_on:
-                dets_all = {
-                tracking_name: {'dets': np.array(dets[tracking_name]), 'info': np.array(info[tracking_name]), 'boxes': dboxes[tracking_name],
-                                'pts': pts[tracking_name]} for tracking_name in NUSCENES_TRACKING_NAMES}
-            else:
-                dets_all = {tracking_name: {'dets': np.array(dets[tracking_name]), 'info': np.array(info[tracking_name]), 'boxes': dboxes[tracking_name]}
-                            for tracking_name in NUSCENES_TRACKING_NAMES}
+            # if point_on:
+            #     dets_all = {
+            #     tracking_name: {'dets': np.array(dets[tracking_name]), 'info': np.array(info[tracking_name]), 'boxes': dboxes[tracking_name],
+            #                     'pts': pts[tracking_name]} for tracking_name in NUSCENES_TRACKING_NAMES}
+            # else:
+            dets_all = {tracking_name: {'dets': np.array(dets[tracking_name]), 'info': np.array(info[tracking_name]), 'boxes': dboxes[tracking_name]}
+                        for tracking_name in NUSCENES_TRACKING_NAMES}
 
             total_frames += 1
             start_time = time.time()
@@ -615,7 +640,7 @@ def track_nuscenes(data_split, covariance_id, match_distance, match_threshold, m
                         sample_result = format_sample_result(current_sample_token, tracking_name, trackers[i])
                         results[current_sample_token].append(sample_result)
                         if viz_on:
-                            tbox = Box((trackers[i][0], trackers[i][1], trackers[i][2]), (trackers[i][4], trackers[i][5], trackers[i][6]), Quaternion(trackers[i][3]))
+                            tbox = Box((trackers[i][0], trackers[i][1], trackers[i][2]), (trackers[i][4], trackers[i][5], trackers[i][6]), Quaternion(axis=[0., 0., 1.], angle=trackers[i][3]))
                             tboxes[tracking_name].append(tbox)
 
             # visualization
@@ -635,6 +660,8 @@ def track_nuscenes(data_split, covariance_id, match_distance, match_threshold, m
                     box.rotate(Quaternion(cs_record['rotation']).inverse)
                     box.render(ax, view=np.eye(4), colors=('b', 'b', 'b'), linewidth=1)
 
+
+                ax.scatter(lidar_points.points[0, :], lidar_points.points[1, :], s=0.1)
                 eval_range = 50
                 axes_limit = eval_range + 3  # Slightly bigger to include boxes that extend beyond the range.
                 ax.set_xlim(-axes_limit, axes_limit)

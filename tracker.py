@@ -7,6 +7,55 @@ import motion_models as mm
 from covariance import Covariance
 from utils import angle_in_range
 
+class TrackerLoader(object):
+    def __init__(self, tracking_name='car'):
+        covariance = Covariance(2)
+        self.P = covariance.P #[tracking_name]
+        self.Q = covariance.Q #[tracking_name]
+        self.R = covariance.R #[tracking_name]
+        # mean size (w, l, h), size error (dw, dl, dh), position error (dx, dy, dz)
+        # mean velocity (x', y', z', yaw'), velocity error (dx', dy', dz', dyaw'),
+        # class-wise or value-wise (mean, error)
+        # holonomic or non-holonimic
+
+        # P and R from detection error
+        # Q from ground truth motion change
+
+        # option
+        # motion models: rm, cv, ctrv, ctcv, ctpv
+            # small heading change error: holonomic
+            #
+        # covariance: dx, dy, dyaw, dz, dl, dw, dh, dvx, dvy, dvyaw, dvz
+        # filter: kf, ukf, imm
+        # association probability: iou (with augmentation factor), mahalanobis,
+            # distance factor: x, y, yaw, z, l, w, h
+        # limitation: angular velocity
+            # how to apply angular velocity limitation
+        # data association: greedy, hungarian, jpda
+
+        if tracking_name == 'bicycle': # holonomic
+            pass
+        elif tracking_name == 'bus':
+            pass
+        elif tracking_name == 'car':
+            pass
+        elif tracking_name == 'motorcycle':
+            pass
+        elif tracking_name == 'pedestrian':
+            pass
+        elif tracking_name == 'trailer':
+            pass
+        elif tracking_name == 'truck':
+            pass
+        else:
+            assert False
+        self.tracker = None
+
+    def get_tracker(self):
+        return self.tracker
+
+
+
 class TrackerInfo(object):
     count = 0
 
@@ -43,7 +92,10 @@ class TrackerInfo(object):
 
 
 class Tracker(object):
-    def __init__(self, model=None):
+    def __init__(self, dim_x, dim_z, yaw_pos, model=None):
+        self.dim_x = dim_x
+        self.dim_z = dim_z
+        self.yaw_pos = yaw_pos
         self.model = model
         self.yaw_pos = 2
         self.history = []
@@ -60,19 +112,19 @@ class Tracker(object):
         """
         Returns the current bounding box estimate.
         """
-        return self.filter.x[:self.model.dim_z].reshape((-1, 1))
+        return self.filter.x[:self.dim_z].reshape((-1, 1))
 
 class KFTracker(Tracker):
-    def __init__(self, z, model=None, tracking_name='car'):
-        super().__init__(model)
-        self.filter = KalmanFilter(dim_x=self.model.dim_x, dim_z=self.model.dim_z)
+    def __init__(self, z, dim_x, dim_z, yaw_pos=2, model=None, tracking_name='car'):
+        super().__init__(dim_x, dim_z, yaw_pos, model)
+        self.filter = KalmanFilter(dim_x=self.dim_x, dim_z=self.dim_z)
         covariance = Covariance(3)
         self.filter.P = covariance.aP[tracking_name]
         self.filter.Q = covariance.aQ[tracking_name]
         self.filter.R = covariance.aR[tracking_name]
-        self.filter.x[:self.model.dim_z] = z.reshape((self.model.dim_z, 1))
-        self.filter.F = np.eye(self.model.dim_x) + np.eye(self.model.dim_x, k=self.model.dim_z)
-        self.filter.H = np.eye(self.model.dim_z, self.model.dim_x)
+        self.filter.x[:self.dim_z] = z.reshape((self.dim_z, 1))
+        self.filter.F = np.eye(self.dim_x) + np.eye(self.dim_x, k=self.dim_z)
+        self.filter.H = np.eye(self.dim_z, self.dim_x)
 
     def predict(self, dt=1.0):
         """
@@ -84,39 +136,34 @@ class KFTracker(Tracker):
         PHT = np.dot(self.filter.P, self.filter.H.T)
         S = np.dot(self.filter.H, PHT) + self.filter.R
         pred_z = np.dot(self.filter.H, self.filter.x)
-
+        pred_z[self.yaw_pos] = angle_in_range(pred_z[self.yaw_pos])
         self.history.append(self.filter.x)
         return pred_z, S # self.filter.x # self.history[-1]
 
     def update(self, z):
         self.history = []
-
-        dyaw = z[self.yaw_pos] - self.filter.x[self.yaw_pos]
-        dyaw = angle_in_range(dyaw)
-        if abs(dyaw) > np.pi / 2.0:
-            z[self.yaw_pos] += np.pi
-            z[self.yaw_pos] = angle_in_range(z[self.yaw_pos])
-
+        z[self.yaw_pos] = angle_in_range(z[self.yaw_pos])
         self.filter.update(z)
         self.filter.x[self.yaw_pos] = angle_in_range(self.filter.x[self.yaw_pos])
-
+        # dyaw = z[self.yaw_pos] - self.filter.x[self.yaw_pos]
+        # dyaw = angle_in_range(dyaw)
+        # if abs(dyaw) > np.pi / 2.0:
+        #     z[self.yaw_pos] += np.pi
 
 
 class UKFTracker(Tracker):
 
-    def __init__(self, z, model=None, tracking_name='car', dt=1.0):
-        super().__init__(model)
-        # self.filter = KalmanFilter(dim_x=self.model.dim_x, dim_z=self.model.dim_z)
+    def __init__(self, z, dim_x, dim_z, yaw_pos, model=None, tracking_name='car', dt=1.0):
+        super().__init__(dim_x, dim_z, yaw_pos, model)
         # sp = MerweScaledSigmaPoints(n=self.model.dim_x, alpha=0.001, beta=2.0, kappa=0.0)
-        sp = JulierSigmaPoints(n=self.model.dim_x, kappa=0.0)
-        self.filter = UnscentedKalmanFilter(dim_x=self.model.dim_x, dim_z=self.model.dim_z, dt=dt, fx=self.model.fx, hx=self.model.hx, residual_x=self.model.residual_fn, residual_z=self.model.residual_fn, points=sp)
+        sp = JulierSigmaPoints(n=self.dim_x, kappa=0.0)
+        self.filter = UnscentedKalmanFilter(dim_x=self.dim_x, dim_z=self.dim_z, dt=dt, fx=self.model.fx, hx=self.model.hx, residual_x=self.model.residual_fn, residual_z=self.model.residual_fn, points=sp)
 
         covariance = Covariance(3)
         self.filter.P = covariance.mP[tracking_name]
         self.filter.Q = covariance.mQ[tracking_name]
         self.filter.R = covariance.mR[tracking_name]
-        self.filter.x[:self.model.dim_z] = z
-
+        self.filter.x[:self.dim_z] = z
 
     def predict(self, dt=1.0):
         """
@@ -127,9 +174,9 @@ class UKFTracker(Tracker):
 
         sigmas_h = []
         for s in self.filter.sigmas_f:
-            sigmas_h.append(self.model.hx(s))
+            sigmas_h.append(self.filter.hx(s))
         sigmas_h = np.atleast_2d(sigmas_h)
-        pred_z, S = unscented_transform(sigmas=sigmas_h, Wm=self.filter.Wm, Wc=self.filter.Wc, noise_cov=self.filter.R, residual_fn=self.model.residual_fn)
+        pred_z, S = unscented_transform(sigmas=sigmas_h, Wm=self.filter.Wm, Wc=self.filter.Wc, noise_cov=self.filter.R, residual_fn=self.filter.residual_z)
         pred_z[self.yaw_pos] = angle_in_range(pred_z[self.yaw_pos])
         self.history.append(self.filter.x)
         return pred_z.reshape((-1, 1)), S # self.filter.x # self.history[-1]
@@ -137,41 +184,74 @@ class UKFTracker(Tracker):
     def update(self, z):
         self.history = []
         z[self.yaw_pos] = angle_in_range(z[self.yaw_pos])
-        dyaw = z[self.yaw_pos] - self.filter.x[self.yaw_pos]
-        dyaw = angle_in_range(dyaw)
-        if abs(np.pi - abs(dyaw)) <= np.pi / 6.0: # 30 deg (
-            z[self.yaw_pos] += np.pi
-            z[self.yaw_pos] = angle_in_range(z[self.yaw_pos])
-
         self.filter.update(z)
         self.filter.x[self.yaw_pos] = angle_in_range(self.filter.x[self.yaw_pos])
 
+        # dyaw = z[self.yaw_pos] - self.filter.x[self.yaw_pos]
+        # dyaw = angle_in_range(dyaw)
+        # if abs(np.pi - abs(dyaw)) <= np.pi / 6.0: # 30 deg (
+        #     z[self.yaw_pos] += np.pi
+        # z[self.yaw_pos] = angle_in_range(z[self.yaw_pos])
 
 
 class IMMTracker(Tracker):
-    def __init__(self, z, models=None, tracking_name='car', dt=1.0):
-        super().__init__(models)
-        self.filters = []
-        for m in models:
-            sp = JulierSigmaPoints(n=self.model.dim_x, kappa=0.0)
-            filter = UnscentedKalmanFilter(dim_x=self.model.dim_x, dim_z=self.model.dim_z, dt=dt, fx=self.model.fx, hx=self.model.hx, residual_x=self.model.residual_fn, residual_z=self.model.residual_fn, points=sp)
+    def __init__(self, z, dim_x, dim_z, yaw_pos=2, model=None, tracking_name='car', dt=1.0):
+        super().__init__(dim_x, dim_z, yaw_pos, model)
+        filters = []
+        mode_probs = np.ones(len(model))
+        transition_prob_mtx = np.eye(len(model))
+        for idx, m in enumerate(model):
+            sp = JulierSigmaPoints(n=self.dim_x, kappa=0.0)
+            # sp = MerweScaledSigmaPoints(n=self.dim_x, alpha=0.001, beta=2.0, kappa=0.0)
+            ftr = UnscentedKalmanFilter(dim_x=self.dim_x, dim_z= self.dim_z, dt=dt, fx=m.fx, hx=m.hx, residual_x=m.residual_fn, residual_z=m.residual_fn, points=sp)
             covariance = Covariance(3)
-            filter.P = covariance.mP[tracking_name]
-            filter.Q = covariance.mQ[tracking_name]
-            filter.R = covariance.mR[tracking_name]
-            filter.x[:self.model.dim_z] = z
-            self.filters.append(filter)
+            ftr.P = covariance.mP[tracking_name]
+            notQmask = np.logical_not(covariance.Qmask[m.model])
+            Q = np.copy(covariance.mQ[tracking_name])
+            Q[notQmask, notQmask] = 1e-7
+            ftr.Q = covariance.Qratio[m.model] * Q
+            ftr.R = covariance.mR[tracking_name]
+            ftr.x[:self.dim_z] = z
+            filters.append(ftr)
+            mode_probs[idx] = m.mode_prob
+            transition_prob_mtx[idx, :] = (1.0 - m.transition_prob)/(len(model) - 1.0)
+            transition_prob_mtx[idx, idx] = m.transition_prob
 
+        mode_probs = mode_probs / np.sum(mode_probs)
+        self.filter = IMMEstimator(filters, mode_probs, transition_prob_mtx)
 
+    def predict(self, dt=1.0):
+        self.filter.predict(dt)
+        self.filter.x[self.yaw_pos] = angle_in_range(self.filter.x[self.yaw_pos])
 
-        pass
+        # max det filter?
+        det_Ss = []
+        Ss = []
+        pred_zs = []
+        for idx, ftr in enumerate(self.filter.filters):
+            sigmas_h = []
+            for s in ftr.sigmas_f:
+                sigmas_h.append(ftr.hx(s))
+            sigmas_h = np.atleast_2d(sigmas_h)
+            pred_z, S = unscented_transform(sigmas=sigmas_h, Wm=ftr.Wm, Wc=ftr.Wc, noise_cov=ftr.R, residual_fn=ftr.residual_z)
+            det_Ss.append(np.linalg.det(S))
+            Ss.append(S)
+            pred_zs.append(pred_z)
 
-    def predict(self, dt=0.1):
-        for filter in self.filters:
-            filter.predict(dt)
+        max_arg = np.argmax(np.array(det_Ss))
+        max_S = Ss[max_arg]
+        max_pred_z = pred_zs[max_arg]
+        max_pred_z[self.yaw_pos] = angle_in_range(max_pred_z[self.yaw_pos])
 
-    def update(self, bbox3D, info):
-        pass
+        self.history.append(self.filter.x)
+        return max_pred_z.reshape((-1, 1)), max_S
+
+    def update(self, z):
+        self.history = []
+        z[self.yaw_pos] = angle_in_range(z[self.yaw_pos])
+        self.filter.update(z)
+        self.filter.x[self.yaw_pos] = angle_in_range(self.filter.x[self.yaw_pos])
+
 
 
 # class KalmanBoxTracker(object):

@@ -84,57 +84,53 @@ def polygon_clip(subjectPolygon, clipPolygon):
             return None
     return (outputList)
 
+def box_overlap(bbox_a, bbox_b):
+    """
+    bbox_a : 3 X 8
+    bbox_b : 3 X 8
+    """
+    amax = np.max(bbox_a[0:2, 0:4], axis=1)
+    bmax = np.max(bbox_b[0:2, 0:4], axis=1)
+    amin = np.min(bbox_a[0:2, 0:4], axis=1)
+    bmin = np.min(bbox_b[0:2, 0:4], axis=1)
+    min_max = np.min(np.stack(amax, bmax), axis=0)
+    max_min = np.max(np.stack(amin, bmin), axis=0)
+    if min_max[0] <= max_min[0] or min_max[0] <= max_min[0]:
+        return 0.0
+    iarea = (min_max[0] - max_min[0]) * (min_max[1] - max_min[1])
+    aarea = (amax[0] - amin[0]) * (amax[1] - amin[1])
+    barea = (bmax[0] - bmin[0]) * (bmax[1] - bmin[1])
+    iou = iarea / (aarea + barea - iarea)
+    return iou
 
-# def boxoverlap(self, a, b, criterion="union"):
-#     """
-#         boxoverlap computes intersection over union for bbox a and b in KITTI format.
-#         If the criterion is 'union', overlap = (a inter b) / a union b).
-#         If the criterion is 'a', overlap = (a inter b) / a, where b should be a dontcare area.
-#     """
-#
-#     x1 = max(a.x1, b.x1)
-#     y1 = max(a.y1, b.y1)
-#     x2 = min(a.x2, b.x2)
-#     y2 = min(a.y2, b.y2)
-#
-#     w = x2 - x1
-#     h = y2 - y1
-#
-#     if w <= 0. or h <= 0.:
-#         return 0.
-#     inter = w * h
-#     aarea = (a.x2 - a.x1) * (a.y2 - a.y1)
-#     barea = (b.x2 - b.x1) * (b.y2 - b.y1)
-#     # intersection over union overlap
-#     if criterion.lower() == "union":
-#         o = inter / float(aarea + barea - inter)
-#     elif criterion.lower() == "a":
-#         o = float(inter) / float(aarea)
-#     else:
-#         raise TypeError("Unkown type for criterion")
-#     return o
-#
-# def iou_bev(corners1, corners2):
-#     ''' Compute 2D bounding box IoU.
-#
-#     Input:
-#         corners1: numpy array (8,3), assume up direction is negative Y
-#         corners2: numpy array (8,3), assume up direction is negative Y
-#     Output:
-#         iou_2d: bird's eye view 2D bounding box IoU
-#
-#     '''
-#
-#     # corner points are in counter clockwise order
-#     rect1 = [(corners1[i, 0], corners1[i, 1]) for i in range(3, -1, -1)]
-#     rect2 = [(corners2[i, 0], corners2[i, 1]) for i in range(3, -1, -1)]
-#
-#     area1 = poly_area(np.array(rect1)[:, 0], np.array(rect1)[:, 1])
-#     area2 = poly_area(np.array(rect2)[:, 0], np.array(rect2)[:, 1])
-#     inter, inter_area = convex_hull_intersection(rect1, rect2)
-#     iou_bev = inter_area / (area1 + area2 - inter_area)
-#
-#     return iou_bev
+def boxoverlap(self, a, b, criterion="union"):
+    """
+        boxoverlap computes intersection over union for bbox a and b in KITTI format.
+        If the criterion is 'union', overlap = (a inter b) / a union b).
+        If the criterion is 'a', overlap = (a inter b) / a, where b should be a dontcare area.
+    """
+
+    x1 = max(a.x1, b.x1)
+    y1 = max(a.y1, b.y1)
+    x2 = min(a.x2, b.x2)
+    y2 = min(a.y2, b.y2)
+
+    w = x2 - x1
+    h = y2 - y1
+
+    if w <= 0. or h <= 0.:
+        return 0.
+    inter = w * h
+    aarea = (a.x2 - a.x1) * (a.y2 - a.y1)
+    barea = (b.x2 - b.x1) * (b.y2 - b.y1)
+    # intersection over union overlap
+    if criterion.lower() == "union":
+        o = inter / float(aarea + barea - inter)
+    elif criterion.lower() == "a":
+        o = float(inter) / float(aarea)
+    else:
+        raise TypeError("Unkown type for criterion")
+    return o
 
 
 

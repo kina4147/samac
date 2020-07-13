@@ -16,7 +16,6 @@ class Covariance(object):
     self.P = np.eye(self.num_states)
     self.Q = np.eye(self.num_states)
     self.R = np.eye(self.num_observations)
-
     NUSCENES_TRACKING_NAMES = [
       'bicycle',
       'bus',
@@ -174,6 +173,15 @@ class Covariance(object):
       self.aP = {tracking_name: np.diag(aP[tracking_name]) for tracking_name in NUSCENES_TRACKING_NAMES}
       self.aQ = {tracking_name: np.diag(aQ[tracking_name]) for tracking_name in NUSCENES_TRACKING_NAMES}
       self.aR = {tracking_name: np.diag(aR[tracking_name]) for tracking_name in NUSCENES_TRACKING_NAMES}
+      self.Qmask = {}
+      self.Qratio = {}
+      self.Qmask['cv'] = [True, True, True, True, True]
+      self.Qmask['ctrv'] = [True, True, True, True, True]
+      self.Qmask['rm'] = [True, True, True, True, True]
+      self.Qratio['cv'] = 1.0
+      self.Qratio['ctrv'] = 1.0
+      self.Qratio['rm'] = 1.0
+    # elif covariance_id == 4:
 
     else:
       assert(False)
