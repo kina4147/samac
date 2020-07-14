@@ -114,9 +114,11 @@ def aug_ctpv_fx(x, dt):
 #     #     x[3] = x[4]*sin(x[5])
 #     return px
 
-def hx(x):
+def hx_3(x):
     return x[0:3]
 
+def hx_2(x):
+    return x[0:2]
 
 def residual(x, y):
     diff = x - y

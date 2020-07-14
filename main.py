@@ -16,7 +16,7 @@ from tqdm import tqdm
 
 
 from nuscenes.utils.data_classes import LidarPointCloud
-from tracker import TrackerInfo, KFTracker, UKFTracker, IMMTracker
+from tracker import TrackerInfo, KFTracker, UKFTracker, IMMTracker, TrackerGenerator
 from collections import namedtuple
 from nuscenes.utils import splits
 import motion_models as mm
@@ -26,10 +26,8 @@ from nuscenes.utils.data_classes import Box
 from matplotlib import pyplot as plt
 from utils import angle_in_range, corners, bbox_iou2d, bbox_iou3d, bbox_adjacency_2d
 
-
-AB3DMOTTracker = namedtuple('AB3DMOTTracker', ['info', 'tracker'])
-SAMACTracker = namedtuple('SAMACTracker', ['info', 'mtracker', 'atracker'])
-MotionModel = namedtuple('MotionModel', ['model', 'fx', 'hx', 'residual_fn', 'mode_prob', 'transition_prob'])
+# AB3DMOTTracker = namedtuple('AB3DMOTTracker', ['info', 'tracker'])
+# MotionModel = namedtuple('MotionModel', ['model', 'fx', 'hx', 'residual_fn', 'mode_prob', 'transition_prob'])
 
 NUSCENES_TRACKING_NAMES = [
     'bicycle',
@@ -180,8 +178,8 @@ def associate(dets=None, trks=None, trks_S=None, yaw_pos=2, mahalanobis_threshol
     """
     reverse_matrix = np.zeros((len(dets), len(trks)), dtype=np.bool)
     distance_matrix = np.zeros((len(dets), len(trks)), dtype=np.float32)
-    if len(trks) == 0:
-        return np.empty((0, 2), dtype=int), reverse_matrix, np.arange(len(dets)), np.empty((0, 8, 3), dtype=int)
+    # if len(trks) == 0:
+    #     return np.empty((0, 2), dtype=int), reverse_matrix, np.arange(len(dets)), np.empty((0, 8, 3), dtype=int)
     assert (dets is not None)
     assert (trks is not None)
     assert (trks_S is not None)
@@ -245,8 +243,8 @@ def associate_small(dets=None, trks=None, trks_S=None, yaw_pos=2, mahalanobis_th
     """
     reverse_matrix = np.zeros((len(dets), len(trks)), dtype=np.bool)
     distance_matrix = np.zeros((len(dets), len(trks)), dtype=np.float32)
-    if len(trks) == 0:
-        return np.empty((0, 2), dtype=int), reverse_matrix, np.arange(len(dets)), np.empty((0, 8, 3), dtype=int)
+    # if len(trks) == 0:
+    #     return np.empty((0, 2), dtype=int), reverse_matrix, np.arange(len(dets)), np.empty((0, 8, 3), dtype=int)
     assert (dets is not None)
     assert (trks is not None)
     assert (trks_S is not None)
@@ -334,6 +332,7 @@ class AB3DMOT(object):
         self.tracking_name = tracking_name
         self.use_angular_velocity = use_angular_velocity
         self.tracking_nuscenes = tracking_nuscenes
+        self.tracker_generator = TrackerGenerator(self.tracking_name)
 
     def samac_update(self, dets_all, match_distance, match_threshold, match_algorithm, seq_name):
         """
@@ -360,7 +359,6 @@ class AB3DMOT(object):
         trcks_x = []
         # PREDICTION
         for t, trk in enumerate(self.trackers):
-
             trk.info.predict()
             a_pred_z, a_S = trk.atracker.predict()
             m_pred_z, m_S = trk.mtracker.predict()
@@ -375,26 +373,27 @@ class AB3DMOT(object):
         for t in reversed(to_del):
             self.trackers.pop(t)
 
+        # association
         if len(trks) > 0:
             trks = np.stack(trks, axis=0)
             trks_S = np.stack(trks_S, axis=0)
-            # print(self.tracking_name, np.max(trcks_x, axis=0))
-
-        # DATA ASSOCIATION
-        if match_distance == 'iou':
-            dets_corners = [corners(det) for det in dets]
-            trks_corners = [corners(trk) for trk in trks]
-            matched, reverse, unmatched_dets, unmatched_trks = associate_iou(dets=dets, trks=trks, dets_corners=dets_corners, trks_corners=trks_corners, yaw_pos=yaw_pos, iou_threshold=match_threshold)
-        elif match_distance == 'mahal':
-            matched, reverse, unmatched_dets, unmatched_trks = associate(dets=dets, trks=trks, trks_S=trks_S, yaw_pos=yaw_pos,
-                                                                     mahalanobis_threshold=match_threshold,
-                                                                     print_debug=print_debug,
-                                                                     match_algorithm=match_algorithm)
-        elif match_distance == 'mahal_small':
-            matched, reverse, unmatched_dets, unmatched_trks = associate_small(dets=dets, trks=trks, trks_S=trks_S, yaw_pos=yaw_pos,
-                                                                     mahalanobis_threshold=match_threshold,
-                                                                     print_debug=print_debug,
-                                                                     match_algorithm=match_algorithm)
+            # DATA ASSOCIATION
+            if match_distance == 'iou':
+                dets_corners = [corners(det) for det in dets]
+                trks_corners = [corners(trk) for trk in trks]
+                matched, reverse, unmatched_dets, unmatched_trks = associate_iou(dets=dets, trks=trks, dets_corners=dets_corners, trks_corners=trks_corners, yaw_pos=yaw_pos, iou_threshold=match_threshold)
+            elif match_distance == 'mahal':
+                comp_dets = dets[:, self.tracker_generator.state_on]
+                comp_trks = trks[:, self.tracker_generator.state_on]
+                comp_trks_S = np.zeros((len(trks), self.tracker_generator.dim_z, self.tracker_generator.dim_z))
+                comp_trks_S[:, np.ones((self.tracker_generator.dim_z, self.tracker_generator.dim_z), dtype=bool)] = trks_S[:, self.tracker_generator.state_cov_on]
+                # print(comp_trks_S.shape)
+                matched, reverse, unmatched_dets, unmatched_trks = associate(dets=comp_dets, trks=comp_trks, trks_S=comp_trks_S, yaw_pos=yaw_pos,
+                                                                         mahalanobis_threshold=self.tracker_generator.association_threshold,
+                                                                         print_debug=print_debug,
+                                                                         match_algorithm=match_algorithm)
+        else:
+            matched, reverse, unmatched_dets, unmatched_trks = np.empty((0, 2), dtype=int), np.zeros((len(dets), 0), dtype=np.bool), np.arange(len(dets)), np.empty((0, 8, 3), dtype=int)
 
         # UPDATE
         # update matched trackers with assigned detections
@@ -413,36 +412,20 @@ class AB3DMOT(object):
         # NEW TRACK GENERATION
         # create and initialise new trackers for unmatched detections
         for i in unmatched_dets:  # a scalar of index
-            tracker_info = TrackerInfo(info[i, :], info[i][-1], self.tracking_name)
-
-
-
-            amodel = MotionModel('cv', None, None, None, None, None)
-            atracker = KFTracker(z=dets[i, 3:7], dim_x=5, dim_z=4, yaw_pos=2, model=amodel, tracking_name=self.tracking_name)
-            mmodel = []
-            # MotionModel = namedtuple('MotionModel', ['model', 'fx', 'hx', 'residual_fn', 'mode_prob', 'transition_prob'])
-            mmodel.append(MotionModel('cv', mm.cv_fx, mm.hx, mm.residual, 0.3, 0.96))
-            mmodel.append(MotionModel('ctrv', mm.ctrv_fx, mm.hx, mm.residual, 0.3, 0.96))
-            mmodel.append(MotionModel('rm', mm.rm_fx, mm.hx, mm.residual, 0.4, 0.96))
-            mtracker = IMMTracker(z=dets[i, 0:3], dim_x=5, dim_z=3, yaw_pos=2, model=mmodel, tracking_name=self.tracking_name)
-            trk = SAMACTracker(tracker_info, mtracker, atracker)
-
-
-
+            trk = self.tracker_generator.generate_tracker(z=dets[i, :], track_score=info[i][0])
             self.trackers.append(trk)
 
 
         # TRACK MANAGEMENT
         i = len(self.trackers)
         for trk in reversed(self.trackers):
-            a_z = trk.atracker.get_state()  # bbox location
-            m_z = trk.mtracker.get_state()  # bbox location
+            m_z = trk.mtracker.get_state(3)  # bbox location
+            a_z = trk.atracker.get_state(4)  # bbox location
             bbox3d = np.concatenate((m_z, a_z))
             bbox3d = bbox3d[self.reorder_back_samac].reshape(1, -1).squeeze()
             if ((trk.info.time_since_update < self.max_age) and (
                     trk.info.hits >= self.min_hits or self.frame_count <= self.min_hits)):
-                ret.append(np.concatenate((bbox3d, [trk.info.id + 1], trk.info.info[:-1], [trk.info.track_score])).reshape(1,
-                                                                                                       -1))  # +1 as MOT benchmark requires positive
+                ret.append(np.concatenate((bbox3d, [trk.info.id + 1], [trk.info.track_score])).reshape(1, -1))  # +1 as MOT benchmark requires positive
             i -= 1
             # remove dead tracklet
             if (trk.info.time_since_update >= self.max_age):
@@ -522,8 +505,8 @@ def track_nuscenes(data_split, covariance_id, match_distance, match_threshold, m
         print('No Dataset Split', data_split)
         assert(False)
     nusc = NuScenes(version=version, dataroot=data_root, verbose=True)
-    point_on = True
-    viz_on = True
+    point_on = False
+    viz_on = False
     results = {}
 
     total_time = 0.0
@@ -591,17 +574,8 @@ def track_nuscenes(data_split, covariance_id, match_distance, match_threshold, m
                 if dbox.detection_name not in NUSCENES_TRACKING_NAMES:
                     continue
 
-                # yaw = quaternion_yaw(Quaternion(dbox.rotation))
-                # # [h, w, l, x, y, z, rot_y]
-                # detection = np.array([
-                #     dbox.size[2], dbox.size[0], dbox.size[1],
-                #     dbox.translation[0], dbox.translation[1], dbox.translation[2],
-                #     yaw])
-
                 # x, y, z, yaw, w, l, h
                 yaw = quaternion_yaw(Quaternion(dbox.rotation))
-                # q = Quaternion(dbox.rotation)
-                # yaw = q.angle if q.axis[2] > 0 else -q.angle
                 detection = np.array([dbox.translation[0], dbox.translation[1], dbox.translation[2], yaw, dbox.size[0], dbox.size[1], dbox.size[2]])
                 box = Box(dbox.translation, dbox.size, Quaternion(dbox.rotation))
                 # point in box ###########################################
@@ -646,22 +620,22 @@ def track_nuscenes(data_split, covariance_id, match_distance, match_threshold, m
             # visualization
             if viz_on:
                 ax.plot(0, 0, '+', color='black')
-                for i, box in enumerate(dboxes['car']):
+                for i, box in enumerate(dboxes['bus']):
                     box.translate(-np.array(pose_record['translation']))
                     box.rotate(Quaternion(pose_record['rotation']).inverse)
                     box.translate(-np.array(cs_record['translation']))
                     box.rotate(Quaternion(cs_record['rotation']).inverse)
                     box.render(ax, view=np.eye(4), colors=('g', 'g', 'g'), linewidth=2)
 
-                for box in tboxes['car']:
+                for box in tboxes['bus']:
                     box.translate(-np.array(pose_record['translation']))
                     box.rotate(Quaternion(pose_record['rotation']).inverse)
                     box.translate(-np.array(cs_record['translation']))
                     box.rotate(Quaternion(cs_record['rotation']).inverse)
                     box.render(ax, view=np.eye(4), colors=('b', 'b', 'b'), linewidth=1)
 
-
-                ax.scatter(lidar_points.points[0, :], lidar_points.points[1, :], s=0.1)
+                if point_on:
+                    ax.scatter(lidar_points.points[0, :], lidar_points.points[1, :], s=0.1)
                 eval_range = 50
                 axes_limit = eval_range + 3  # Slightly bigger to include boxes that extend beyond the range.
                 ax.set_xlim(-axes_limit, axes_limit)

@@ -7,59 +7,205 @@ import motion_models as mm
 from covariance import Covariance
 from utils import angle_in_range
 
-class TrackerLoader(object):
+from collections import namedtuple
+SAMACTracker = namedtuple('SAMACTracker', ['info', 'mtracker', 'atracker'])
+class TrackerGenerator(object):
     def __init__(self, tracking_name='car'):
-        covariance = Covariance(2)
-        self.P = covariance.P #[tracking_name]
-        self.Q = covariance.Q #[tracking_name]
-        self.R = covariance.R #[tracking_name]
-        # mean size (w, l, h), size error (dw, dl, dh), position error (dx, dy, dz)
-        # mean velocity (x', y', z', yaw'), velocity error (dx', dy', dz', dyaw'),
-        # class-wise or value-wise (mean, error)
-        # holonomic or non-holonimic
-
-        # P and R from detection error
-        # Q from ground truth motion change
-
-        # option
-        # motion models: rm, cv, ctrv, ctcv, ctpv
-            # small heading change error: holonomic
-            #
-        # covariance: dx, dy, dyaw, dz, dl, dw, dh, dvx, dvy, dvyaw, dvz
-        # filter: kf, ukf, imm
-        # association probability: iou (with augmentation factor), mahalanobis,
-            # distance factor: x, y, yaw, z, l, w, h
-        # limitation: angular velocity
-            # how to apply angular velocity limitation
-        # data association: greedy, hungarian, jpda
-
+        self.tracking_name = tracking_name
+        # x, y, z, yaw, w, l, h, x', y', z', yaw', w', l', h'
+        yaw_pos = 2
+        self.association_metrics = ['mdist'] # 'iou' or 'mdist' 'mahalanobis distance'
+        self.mstate_on = np.array([True, True, True])
+        self.dim_m_x = 5
+        self.dim_m_z = 3
+        self.astate_on = np.array([True, False, False, True])
+        self.dim_a_x = 4
+        self.dim_a_z = 4
+        # for tracking_name in NUSCENES_TRACKING_NAMES:
         if tracking_name == 'bicycle': # holonomic
-            pass
+            self.head_appearance_on = False
+            self.head_motion_on = True
+            self.association_metrics = ['mdist']
         elif tracking_name == 'bus':
-            pass
+            self.head_appearance_on = True
+            self.head_motion_on = False
+            self.association_metrics = ['mdist']
         elif tracking_name == 'car':
-            pass
+            self.head_appearance_on = True
+            self.head_motion_on = True
+            self.association_metrics = ['mdist']
         elif tracking_name == 'motorcycle':
-            pass
+            self.head_appearance_on = False
+            self.head_motion_on = False
+            self.association_metrics = ['mdist']
         elif tracking_name == 'pedestrian':
-            pass
+            self.head_appearance_on = False
+            self.head_motion_on = True
+            self.association_metrics = ['mdist']
         elif tracking_name == 'trailer':
-            pass
+            self.head_appearance_on = False
+            self.head_motion_on = False
+            self.association_metrics = ['mdist']
         elif tracking_name == 'truck':
-            pass
+            self.head_appearance_on = True
+            self.head_motion_on = False
+            self.association_metrics = ['mdist']
         else:
             assert False
-        self.tracker = None
+        cov = Covariance(3)
+        self.mmodel = {}
+        if self.head_appearance_on:  # x, y, theta
+            self.mstate_on = np.array([True, True, True])
+            self.dim_m_z = np.count_nonzero(self.mstate_on)
+            if self.head_motion_on:  # x, y, theta, v, theta'
+                self.linear_motion = False
+                self.dim_m_x = 5 # x, y, theta, v, theta'
+                self.dim_m_z = 3 # x, y, theta, v, theta'
+                self.mmodel['fx'] = mm.cv_fx # cv vs. ctrv
+                self.mmodel['hx'] = mm.hx_3
+                self.mmodel['residual'] = mm.residual
+                self.mmodel['P'] = cov.m_nonlinear_P[tracking_name][:self.dim_m_x, :self.dim_m_x]
+                self.mmodel['Q'] = cov.m_nonlinear_Q[tracking_name][:self.dim_m_x, :self.dim_m_x]
+                self.mmodel['R'] = cov.mR[tracking_name][:self.dim_m_z, :self.dim_m_z]
+            else:
+                self.linear_motion = True
+                self.dim_m_x = 6 # x, y, theta, x', y', theta'
+                self.dim_m_z = 3 # x, y, theta, x', y', theta'
+                self.mmodel['P'] = cov.m_linear_P[tracking_name][:self.dim_m_x, :self.dim_m_x]
+                self.mmodel['Q'] = cov.m_linear_Q[tracking_name][:self.dim_m_x, :self.dim_m_x]
+                self.mmodel['R'] = cov.mR[tracking_name][:self.dim_m_z, :self.dim_m_z]
+        else:
+            self.mstate_on = np.array([True, True, False])
+            self.num_mstate = np.count_nonzero(self.mstate_on)
+            if self.head_motion_on:  # x, y, theta, v, theta'
+                self.linear_motion = False
+                self.dim_m_x = 5 # x, y, theta, v, theta'
+                self.dim_m_z = 2 # x, y, theta, v, theta'
+                self.mmodel['fx'] = mm.cv_fx # cv vs. ctrv
+                self.mmodel['hx'] = mm.hx_2
+                self.mmodel['residual'] = mm.residual
+                self.mmodel['P'] = cov.m_nonlinear_P[tracking_name][:self.dim_m_x, :self.dim_m_x]
+                self.mmodel['Q'] = cov.m_nonlinear_Q[tracking_name][:self.dim_m_x, :self.dim_m_x]
+                self.mmodel['R'] = cov.mR[tracking_name][:self.dim_m_z, :self.dim_m_z]
+            else:
+                self.linear_motion = True
+                self.dim_m_x = 5 # x, y, theta, x', y'
+                self.dim_m_z = 3 # x, y, theta, x', y'
+                self.mmodel['P'] = cov.m_linear_P[tracking_name][:self.dim_m_x, :self.dim_m_x]
+                self.mmodel['Q'] = cov.m_linear_Q[tracking_name][:self.dim_m_x, :self.dim_m_x]
+                self.mmodel['R'] = cov.mR[tracking_name][:self.dim_m_z, :self.dim_m_z]
 
-    def get_tracker(self):
-        return self.tracker
+        self.dim_a_x = 4
+        self.dim_a_z = 4 # np.count_nonzero(self.astate_on)
+        self.amodel = {}
+        self.amodel['P'] = cov.aP[tracking_name][0:self.dim_a_x, 0:self.dim_a_x]
+        self.amodel['Q'] = cov.aQ[tracking_name][0:self.dim_a_x, 0:self.dim_a_x]
+        self.amodel['R'] = cov.aR[tracking_name][0:self.dim_a_x, 0:self.dim_a_x]
+        # self.astate_on = np.array([True, True, True, True])
+        # self.dim_a_z = np.count_nonzero(self.astate_on)
+        if tracking_name == 'bicycle' or tracking_name == 'motorcycle' or tracking_name == 'pedestrian':
+            self.astate_on = np.array([True, False, False, True])
+        elif tracking_name == 'bus' or tracking_name == 'trailer' or tracking_name == 'truck':
+            self.astate_on = np.array([True, True, False, True])
+        elif tracking_name == 'car':
+            self.astate_on = np.array([True, True, True, True])
+        else:
+            assert False
+        self.state_on = np.concatenate((self.mstate_on, self.astate_on))
+        self.state_cov_on = self.state_on.reshape(-1, 1).dot(self.state_on.reshape(-1, 1).T)
+        self.dim_z = np.count_nonzero(self.state_on)
+        self.association_threshold = cov.mdist_threshold[self.dim_z]
+
+    def generate_tracker(self, z, track_score=0.0):
+        # z: x, y, yaw, z, l, w, h
+        m_z = np.copy(z[0:3])
+        a_z = np.copy(z[3:7])
+        # Motion Tracker Initialization
+        mtracker = None
+        # m_z = m_z[self.mstate_on]
+        if self.linear_motion:
+            mtracker = KFTracker(z=m_z, dim_x=self.dim_m_x, dim_z=self.dim_m_z, dim_out=3, model=self.mmodel, tracking_name=self.tracking_name)
+        else: # x, y, theta, x', y', theta' or x, y, theta, x', y'
+            yaw_pos = 2
+            if self.dim_m_z < 3:
+                yaw_pos = -1
+            mtracker = UKFTracker(z=m_z, dim_x=self.dim_m_x, dim_z=self.dim_m_z, dim_out=3, yaw_pos=yaw_pos, model=self.mmodel, tracking_name=self.tracking_name)
+
+        # Appearance Tracker Initialization
+        amodel = {}
+        atracker = KFTracker(z=a_z, dim_x=self.dim_a_x, dim_z=self.dim_a_z, dim_out=4, yaw_pos=-1, model=self.amodel, tracking_name=self.tracking_name)
+        info = TrackerInfo(state_on=np.concatenate((self.mstate_on, self.astate_on)), track_score=track_score, tracking_name=self.tracking_name)
+
+        # mmodel.append(MotionModel('rm', mm.rm_fx, mm.hx, mm.residual, 0.4, 0.96))
+        # tracker = {'info': info, 'mtracker': mtracker, 'atracker': atracker}
+        tracker = SAMACTracker(info, mtracker, atracker)
+        return tracker
+
+
+        # if not self.head_motion_on and not self.head_appearance_on[tracking_name]:
+        #     mstate_on = np.array([True, True, True])
+        #     num_mstate = 3
+        #     m_z = m_z[0:num_mstate]
+        #     mtracker = KFTracker(z=m_z, dim_x=5, dim_z=3, tracking_name=tracking_name)
+        #
+        # elif not self.head_appearance_on[tracking_name]:
+        #
+        #
+        # elif not self.head_motion_on[tracking_name]:
+        #
+        # else:
+        #     mstate_on = np.array([True, True, True])
+        #     num_mstate = 3
+        #     m_z = m_z[0:num_mstate]
+        #     if not self.imm_on: # heading variance? heading diff variance?
+        #         model = {}
+        #         model['fx'] = mm.cv_fx # cv vs. ctrv
+        #         model['hx'] = mm.hx
+        #         model['residual_fn'] = mm.residual
+        #         model['P'] = cov.mP[tracking_name]
+        #         model['Q'] = cov.mP[tracking_name]
+        #         model['R'] = cov.mP[tracking_name]
+        #         mtracker = UKFTracker(z=m_z, dim_x=5, dim_z=3, yaw_pos=2, model=model, tracking_name=tracking_name)
+        #     else:
+                # models = []
+                # # cv
+                # model['fx'] = mm.cv_fx
+                # model['hx'] = mm.hx
+                # model['residual_fn'] = mm.residual
+                # model['mode_prob'] = 0.3
+                # model['transition_prob'] = 0.96
+                # model['P'] = cov.mP[tracking_name]
+                # model['Q'] = cov.mP[tracking_name]
+                # model['R'] = cov.mP[tracking_name]
+                # models.append(model)
+                # # ctrv
+                # model['fx'] = mm.cv_fx
+                # model['hx'] = mm.hx
+                # model['residual_fn'] = mm.residual
+                # model['mode_prob'] = 0.3
+                # model['transition_prob'] = 0.96
+                # model['P'] = cov.mP[tracking_name]
+                # model['Q'] = cov.mP[tracking_name]
+                # model['R'] = cov.mP[tracking_name]
+                # models.append(model)
+                # # rm
+                # model['fx'] = mm.cv_fx
+                # model['hx'] = mm.hx
+                # model['residual_fn'] = mm.residual
+                # model['mode_prob'] = 0.3
+                # model['transition_prob'] = 0.96
+                # model['P'] = cov.mP[tracking_name]
+                # model['Q'] = cov.mP[tracking_name]
+                # model['R'] = cov.mP[tracking_name]
+                # models.append(model)
+                # mtracker = IMMTracker(z=m_z, dim_x=5, dim_z=3, tracking_name=tracking_name)
+
 
 
 
 class TrackerInfo(object):
     count = 0
-
-    def __init__(self, info, track_score=None, tracking_name='car'):
+    def __init__(self, info=None, state_on=np.ones(7, dtype=bool), track_score=None, tracking_name='car'):
         self.id = TrackerInfo.count
         TrackerInfo.count += 1
         self.time_since_update = 0
@@ -71,6 +217,7 @@ class TrackerInfo(object):
         self.info = info  # other info
         self.track_score = track_score
         self.tracking_name = tracking_name
+        self.state_on = state_on
 
     def predict(self):
         self.age += 1
@@ -92,12 +239,13 @@ class TrackerInfo(object):
 
 
 class Tracker(object):
-    def __init__(self, dim_x, dim_z, yaw_pos, model=None):
+    def __init__(self, dim_x, dim_z, dim_out, yaw_pos, model=None):
         self.dim_x = dim_x
         self.dim_z = dim_z
+        self.dim_out = dim_out
         self.yaw_pos = yaw_pos
         self.model = model
-        self.yaw_pos = 2
+        self.yaw_pos = yaw_pos
         self.history = []
         self.filter = None
 
@@ -107,91 +255,109 @@ class Tracker(object):
     def update(self, z, info):
         self.filter.update(z=z)
 
-
-    def get_state(self):
+    def get_state(self, dim_x=3):
         """
         Returns the current bounding box estimate.
         """
-        return self.filter.x[:self.dim_z].reshape((-1, 1))
+        return self.filter.x[:dim_x].reshape((-1, 1))
 
-class KFTracker(Tracker):
-    def __init__(self, z, dim_x, dim_z, yaw_pos=2, model=None, tracking_name='car'):
-        super().__init__(dim_x, dim_z, yaw_pos, model)
+class KFTracker(Tracker): # x, y, x', y'
+    def __init__(self, z, dim_x, dim_z, dim_out, yaw_pos=2, model=None, tracking_name='car'):
+        super().__init__(dim_x, dim_z, dim_out, yaw_pos, model)
         self.filter = KalmanFilter(dim_x=self.dim_x, dim_z=self.dim_z)
-        covariance = Covariance(3)
-        self.filter.P = covariance.aP[tracking_name]
-        self.filter.Q = covariance.aQ[tracking_name]
-        self.filter.R = covariance.aR[tracking_name]
-        self.filter.x[:self.dim_z] = z.reshape((self.dim_z, 1))
+        self.filter.P = model['P']
+        self.filter.Q = model['Q']
+        self.filter.R = model['R']
         self.filter.F = np.eye(self.dim_x) + np.eye(self.dim_x, k=self.dim_z)
         self.filter.H = np.eye(self.dim_z, self.dim_x)
+        if self.yaw_pos > -1:
+            z[self.yaw_pos] = angle_in_range(z[self.yaw_pos])
+        self.filter.x[:self.dim_out, :] = z.reshape((-1, 1))
 
     def predict(self, dt=1.0):
         """
         Advances the state vector and returns the predicted bounding box estimate.
         """
         self.filter.predict(dt)
-        self.filter.x[self.yaw_pos] = angle_in_range(self.filter.x[self.yaw_pos])
+        if self.yaw_pos > -1:
+            self.filter.x[self.yaw_pos] = angle_in_range(self.filter.x[self.yaw_pos])
+        self.history.append(self.filter.x)
 
         PHT = np.dot(self.filter.P, self.filter.H.T)
         S = np.dot(self.filter.H, PHT) + self.filter.R
         pred_z = np.dot(self.filter.H, self.filter.x)
-        pred_z[self.yaw_pos] = angle_in_range(pred_z[self.yaw_pos])
-        self.history.append(self.filter.x)
-        return pred_z, S # self.filter.x # self.history[-1]
+        if self.yaw_pos > -1:
+            pred_z[self.yaw_pos] = angle_in_range(pred_z[self.yaw_pos])
+        if self.dim_z < self.dim_out:
+            out_pred_z = np.zeros((self.dim_out, 1))
+            out_S = np.zeros((self.dim_out, self.dim_out))
+            out_pred_z[:self.dim_z] = pred_z
+            out_S[:self.dim_z, :self.dim_z] = S
+            return out_pred_z, out_S
+        return pred_z, S
 
     def update(self, z):
         self.history = []
-        z[self.yaw_pos] = angle_in_range(z[self.yaw_pos])
+        z = z[:self.dim_z]
+        if self.yaw_pos > -1:
+            z[self.yaw_pos] = angle_in_range(z[self.yaw_pos])
         self.filter.update(z)
-        self.filter.x[self.yaw_pos] = angle_in_range(self.filter.x[self.yaw_pos])
-        # dyaw = z[self.yaw_pos] - self.filter.x[self.yaw_pos]
-        # dyaw = angle_in_range(dyaw)
-        # if abs(dyaw) > np.pi / 2.0:
-        #     z[self.yaw_pos] += np.pi
-
+        if self.yaw_pos > -1:
+            self.filter.x[self.yaw_pos] = angle_in_range(self.filter.x[self.yaw_pos])
 
 class UKFTracker(Tracker):
-
-    def __init__(self, z, dim_x, dim_z, yaw_pos, model=None, tracking_name='car', dt=1.0):
-        super().__init__(dim_x, dim_z, yaw_pos, model)
+    def __init__(self, z, dim_x, dim_z, dim_out, yaw_pos=2, model=None, tracking_name='car', dt=1.0):
+        super().__init__(dim_x, dim_z, dim_out, yaw_pos, model)
         # sp = MerweScaledSigmaPoints(n=self.model.dim_x, alpha=0.001, beta=2.0, kappa=0.0)
         sp = JulierSigmaPoints(n=self.dim_x, kappa=0.0)
-        self.filter = UnscentedKalmanFilter(dim_x=self.dim_x, dim_z=self.dim_z, dt=dt, fx=self.model.fx, hx=self.model.hx, residual_x=self.model.residual_fn, residual_z=self.model.residual_fn, points=sp)
-
-        covariance = Covariance(3)
-        self.filter.P = covariance.mP[tracking_name]
-        self.filter.Q = covariance.mQ[tracking_name]
-        self.filter.R = covariance.mR[tracking_name]
-        self.filter.x[:self.dim_z] = z
+        if self.yaw_pos > -1:
+            z[self.yaw_pos] = angle_in_range(z[self.yaw_pos])
+            self.filter = UnscentedKalmanFilter(dim_x=self.dim_x, dim_z=self.dim_z, dt=dt, fx=self.model['fx'],
+                                                hx=self.model['hx'], residual_x=self.model['residual'],
+                                                residual_z=self.model['residual'], points=sp)
+        else:
+            self.filter = UnscentedKalmanFilter(dim_x=self.dim_x, dim_z=self.dim_z, dt=dt, fx=self.model['fx'],
+                                                hx=self.model['hx'], residual_x=self.model['residual'], points=sp)
+        self.filter.P = model['P']
+        self.filter.Q = model['Q']
+        self.filter.R = model['R']
+        self.filter.x[:z.shape[0]] = z
 
     def predict(self, dt=1.0):
         """
         Advances the state vector and returns the predicted bounding box estimate.
         """
         self.filter.predict(dt)
-        self.filter.x[self.yaw_pos] = angle_in_range(self.filter.x[self.yaw_pos])
+        if self.yaw_pos > -1:
+            self.filter.x[self.yaw_pos] = angle_in_range(self.filter.x[self.yaw_pos])
+        self.history.append(self.filter.x)
 
         sigmas_h = []
         for s in self.filter.sigmas_f:
             sigmas_h.append(self.filter.hx(s))
         sigmas_h = np.atleast_2d(sigmas_h)
-        pred_z, S = unscented_transform(sigmas=sigmas_h, Wm=self.filter.Wm, Wc=self.filter.Wc, noise_cov=self.filter.R, residual_fn=self.filter.residual_z)
-        pred_z[self.yaw_pos] = angle_in_range(pred_z[self.yaw_pos])
-        self.history.append(self.filter.x)
+        if self.yaw_pos > -1:
+            pred_z, S = unscented_transform(sigmas=sigmas_h, Wm=self.filter.Wm, Wc=self.filter.Wc, noise_cov=self.filter.R, residual_fn=self.filter.residual_z)
+            pred_z[self.yaw_pos] = angle_in_range(pred_z[self.yaw_pos])
+        else:
+            pred_z, S = unscented_transform(sigmas=sigmas_h, Wm=self.filter.Wm, Wc=self.filter.Wc,
+                                            noise_cov=self.filter.R)
+        if self.dim_z < self.dim_out:
+            out_pred_z = np.zeros((self.dim_out))
+            out_S = np.zeros((self.dim_out, self.dim_out))
+            out_pred_z[:self.dim_z] = pred_z
+            out_S[:self.dim_z, :self.dim_z] = S
+            return out_pred_z.reshape((-1, 1)), out_S
         return pred_z.reshape((-1, 1)), S # self.filter.x # self.history[-1]
 
     def update(self, z):
         self.history = []
-        z[self.yaw_pos] = angle_in_range(z[self.yaw_pos])
+        if self.yaw_pos > -1:
+            z[self.yaw_pos] = angle_in_range(z[self.yaw_pos])
+        z = z[:self.dim_z]
         self.filter.update(z)
-        self.filter.x[self.yaw_pos] = angle_in_range(self.filter.x[self.yaw_pos])
-
-        # dyaw = z[self.yaw_pos] - self.filter.x[self.yaw_pos]
-        # dyaw = angle_in_range(dyaw)
-        # if abs(np.pi - abs(dyaw)) <= np.pi / 6.0: # 30 deg (
-        #     z[self.yaw_pos] += np.pi
-        # z[self.yaw_pos] = angle_in_range(z[self.yaw_pos])
+        if self.yaw_pos > -1:
+            self.filter.x[self.yaw_pos] = angle_in_range(self.filter.x[self.yaw_pos])
 
 
 class IMMTracker(Tracker):
@@ -203,14 +369,10 @@ class IMMTracker(Tracker):
         for idx, m in enumerate(model):
             sp = JulierSigmaPoints(n=self.dim_x, kappa=0.0)
             # sp = MerweScaledSigmaPoints(n=self.dim_x, alpha=0.001, beta=2.0, kappa=0.0)
-            ftr = UnscentedKalmanFilter(dim_x=self.dim_x, dim_z= self.dim_z, dt=dt, fx=m.fx, hx=m.hx, residual_x=m.residual_fn, residual_z=m.residual_fn, points=sp)
-            covariance = Covariance(3)
-            ftr.P = covariance.mP[tracking_name]
-            notQmask = np.logical_not(covariance.Qmask[m.model])
-            Q = np.copy(covariance.mQ[tracking_name])
-            Q[notQmask, notQmask] = 1e-7
-            ftr.Q = covariance.Qratio[m.model] * Q
-            ftr.R = covariance.mR[tracking_name]
+            ftr = UnscentedKalmanFilter(dim_x=self.dim_x, dim_z= self.dim_z, dt=dt, fx=m['fx'], hx=m['hx'], residual_x=m['residual'], residual_z=m['residual'], points=sp)
+            ftr.P = m['P']
+            ftr.Q = m['Q']
+            ftr.R = m['R']
             ftr.x[:self.dim_z] = z
             filters.append(ftr)
             mode_probs[idx] = m.mode_prob
@@ -413,3 +575,59 @@ class IMMTracker(Tracker):
 #         Returns the current bounding box estimate.
 #         """
 #         return self.kf.x[:7].reshape((7,))
+
+
+
+        # motion tracker
+        # if error yaw is zero mean && error yaw is small variance
+        # headed ukf: x, y, yaw, v, (yaw')
+        # if not
+        # not headed kf: x, y, x', y'
+        # zwlh # zero mean inspection [mean_z, mean_w, mean_l, mean_h]
+        # std dev inspection [sd_z, sd_w, sd_l, sd_h]
+        # covariance = Covariance(2)
+        # self.P = covariance.P #[tracking_name]
+        # self.Q = covariance.Q #[tracking_name]
+        # self.R = covariance.R #[tracking_name]
+        # mean size (w, l, h), size error (dw, dl, dh), position error (dx, dy, dz)
+        # mean velocity (x', y', z', yaw'), velocity error (dx', dy', dz', dyaw'),
+        # class-wise or value-wise (mean, error)
+        # holonomic or non-holonimic
+
+        # P and R from detection error
+        # Q from ground truth motion change
+
+        # option
+        # motion models: rm, cv, ctrv, ctcv, ctpv
+            # small heading change error: holonomic
+            #
+        # covariance: dx, dy, dyaw, dz, dl, dw, dh, dvx, dvy, dvyaw, dvz
+        # filter: kf, ukf, imm
+        # association probability: iou (with augmentation factor), mahalanobis,
+            # distance factor: x, y, yaw, z, l, w, h
+        # limitation: angular velocity
+            # how to apply angular velocity limitation
+        # data association: greedy, hungarian, jpda
+
+        # cov = Covariance('nuscenes', 'train')
+        # self.measurement_noise_mean = cov.measurement_noise_mean
+        # self.process_noise_mean = cov.process_noise_mean
+        # self.measurement_noise_std_dev = cov.measurement_noise_std_dev
+        # self.process_noise_std_dev = cov.process_noise_std_dev
+        # for tracking_name in NUSCENES_TRACKING_NAMES:
+        #     # not predictable => value should be zero mean
+        #     pnm_mask = np.less(self.process_noise_mean[tracking_name] < cov.process_noise_mean_trigger)
+        #     pnsd_mask = np.less(self.process_noise_std_dev[tracking_name] < cov.process_noise_std_dev_trigger)
+        #     # not detectable => value should be zero mean
+        #     mnm_mask = np.less(self.measurement_noise_mean[tracking_name], cov.measurement_noise_mean_trigger)
+        #     mnsd_mask = np.less(self.measurement_noise_std_dev[tracking_name] < cov.measurement_noise_std_dev_trigger)
+        #
+        #     pn_mask[tracking_name] = np.logical_and(pnm_mask, pnsd_mask) # not predictable ? controllability (complete state controllability)
+        #     mn_mask[tracking_name] = np.logical_and(mnsd_mask, mnm_mask) # not detectable ? observability?
+        #
+        #     if pn_mask[yaw_pos]:
+        #         self.head_motion_on[tracking_name] = True
+        #     if mn_mask[yaw_pos]:
+        #         self.head_appearance_on[tracking_name] = True
+        #
+        #     if self.head_motion_on[tracking_name] and self.head_appearance_on[tracking_name]:
