@@ -301,10 +301,11 @@ def associate_small(dets=None, trks=None, trks_S=None, yaw_pos=2, mahalanobis_th
 
 
 class AB3DMOT(object):
-    def __init__(self, covariance_id=0, max_age=2, min_hits=3, tracking_name='car', use_angular_velocity=False,
+    def __init__(self, covariance_id=0, max_tracking_age=3, max_new_age=1, min_hits=3, tracking_name='car', use_angular_velocity=False,
                  tracking_nuscenes=False):
 
-        self.max_age = max_age
+        self.max_tracking_age = max_tracking_age
+        self.max_new_age = max_new_age
         self.min_hits = min_hits
         self.trackers = []
         self.frame_count = 0
@@ -419,16 +420,28 @@ class AB3DMOT(object):
         # TRACK MANAGEMENT
         i = len(self.trackers)
         for trk in reversed(self.trackers):
-            m_z = trk.mtracker.get_state(3)  # bbox location
-            a_z = trk.atracker.get_state(4)  # bbox location
+            m_z = trk.mtracker.get_state()  # bbox location
+            a_z = trk.atracker.get_state()  # bbox location
             bbox3d = np.concatenate((m_z, a_z))
             bbox3d = bbox3d[self.reorder_back_samac].reshape(1, -1).squeeze()
-            if ((trk.info.time_since_update < self.max_age) and (
-                    trk.info.hits >= self.min_hits or self.frame_count <= self.min_hits)):
-                ret.append(np.concatenate((bbox3d, [trk.info.id + 1], [trk.info.track_score])).reshape(1, -1))  # +1 as MOT benchmark requires positive
+            if trk.info.tracking:
+                if trk.info.time_since_update < self.max_tracking_age: # and trk.info.hit_streak > 0:
+                    ret.append(np.concatenate((bbox3d, [trk.info.id + 1], [trk.info.track_score])).reshape(1,
+                                                                                                           -1))  # +1 as MOT benchmark requires positive
+                else:
+                    trk.info.erase = True
+            else:
+                if trk.info.time_since_update < self.max_new_age:
+                    if trk.info.hits >= self.min_hits:
+                        trk.info.tracking = True
+                    if trk.info.hit_streak > 0 or self.frame_count <= self.min_hits:
+                        ret.append(np.concatenate((bbox3d, [trk.info.id + 1], [trk.info.track_score])).reshape(1,
+                                                                                                           -1))  # +1 as MOT benchmark requires positive
+                else:
+                    trk.info.erase = True
             i -= 1
             # remove dead tracklet
-            if (trk.info.time_since_update >= self.max_age):
+            if trk.info.erase:
                 self.trackers.pop(i)
 
         if (len(ret) > 0):
@@ -620,14 +633,14 @@ def track_nuscenes(data_split, covariance_id, match_distance, match_threshold, m
             # visualization
             if viz_on:
                 ax.plot(0, 0, '+', color='black')
-                for i, box in enumerate(dboxes['bus']):
+                for i, box in enumerate(dboxes['pedestrian']):
                     box.translate(-np.array(pose_record['translation']))
                     box.rotate(Quaternion(pose_record['rotation']).inverse)
                     box.translate(-np.array(cs_record['translation']))
                     box.rotate(Quaternion(cs_record['rotation']).inverse)
                     box.render(ax, view=np.eye(4), colors=('g', 'g', 'g'), linewidth=2)
 
-                for box in tboxes['bus']:
+                for box in tboxes['pedestrian']:
                     box.translate(-np.array(pose_record['translation']))
                     box.rotate(Quaternion(pose_record['rotation']).inverse)
                     box.translate(-np.array(cs_record['translation']))
