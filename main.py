@@ -38,15 +38,6 @@ NUSCENES_TRACKING_NAMES = [
     'trailer',
     'truck'
 ]
-# NUSCENES_TRACKING_NAMES = [
-#     'bicycle',
-#     'bus',
-#     'car',
-#     'motorcycle',
-#     'pedestrian',
-#     'trailer',
-#     'truck'
-# ]
 
 def format_sample_result(sample_token, tracking_name, tracker):
     '''
@@ -232,74 +223,6 @@ def associate(dets=None, trks=None, trks_S=None, yaw_pos=2, mahalanobis_threshol
 
     return matches, reverse_matrix, np.array(unmatched_detections), np.array(unmatched_trackers)
 
-
-def associate_small(dets=None, trks=None, trks_S=None, yaw_pos=2, mahalanobis_threshold=0.1, print_debug=False, match_algorithm='greedy'):
-    """
-    Assigns detections to tracked object (both represented as bounding boxes)
-    dets: N x 7
-    trks: M x 7
-    trks_S: N x 7 x 7
-    Returns 3 lists of matches, unmatched_detections and unmatched_trackers
-    """
-    reverse_matrix = np.zeros((len(dets), len(trks)), dtype=np.bool)
-    distance_matrix = np.zeros((len(dets), len(trks)), dtype=np.float32)
-    # if len(trks) == 0:
-    #     return np.empty((0, 2), dtype=int), reverse_matrix, np.arange(len(dets)), np.empty((0, 8, 3), dtype=int)
-    assert (dets is not None)
-    assert (trks is not None)
-    assert (trks_S is not None)
-
-    # 0, 1, 3, 6 # cylindrical tracking max? min?
-
-    comp_trks_S = [block_diag(trk_S[0:2, 0:2], trk_S[3, 3], trk_S[6, 6]) for trk_S in trks_S]
-    comp_dets = [np.array([det[0], det[1], det[3], det[6]])   for det in dets]
-    comp_trks = [np.array([trk[0], trk[1], trk[3], trk[6]])   for trk in trks]
-
-    for t, trk in enumerate(comp_trks):
-        S_inv = np.linalg.inv(comp_trks_S[t])  # 4 x 4
-        for d, det in enumerate(comp_dets):
-            diff = np.expand_dims(det - trk, axis=1)  # 4 x 1
-            distance_matrix[d, t] = np.sqrt(np.matmul(np.matmul(diff.T, S_inv), diff)[0][0])
-
-    if match_algorithm == 'greedy':
-        # to_max_mask = distance_matrix > mahalanobis_threshold
-        # distance_matrix[to_max_mask] = mahalanobis_threshold + 1
-        matched_indices = greedy_match(distance_matrix)
-    elif match_algorithm == 'hungarian':
-        to_max_mask = distance_matrix > mahalanobis_threshold
-        distance_matrix[to_max_mask] = mahalanobis_threshold + 1
-        matched_indices = linear_assignment(distance_matrix)  # houngarian algorithm
-
-    unmatched_detections = []
-    for d in range(len(comp_dets)):
-        if d not in matched_indices[:, 0]:
-            unmatched_detections.append(d)
-
-    unmatched_trackers = []
-    for t in range(len(comp_trks)):
-        if len(matched_indices) == 0 or (t not in matched_indices[:, 1]):
-            unmatched_trackers.append(t)
-
-    # filter out matched with low IOU
-    matches = []
-    for m in matched_indices:
-        match = True
-        if distance_matrix[m[0], m[1]] > mahalanobis_threshold:
-            match = False
-        if not match:
-            unmatched_detections.append(m[0])
-            unmatched_trackers.append(m[1])
-        else:
-            matches.append(m.reshape(1, 2))
-    if len(matches) == 0:
-        matches = np.empty((0, 2), dtype=int)
-    else:
-        matches = np.concatenate(matches, axis=0)
-
-    return matches, reverse_matrix, np.array(unmatched_detections), np.array(unmatched_trackers)
-
-
-
 class AB3DMOT(object):
     def __init__(self, covariance_id=0, max_tracking_age=3, max_new_age=1, min_hits=3, tracking_name='car', use_angular_velocity=False,
                  tracking_nuscenes=False):
@@ -312,12 +235,12 @@ class AB3DMOT(object):
         """
         observation:
           before reorder: [x, y, z, yaw, w, l, h]
-          after reorder:  [x, y, yaw, z, l, w, h]
+          after reorder:  [x, y, yaw, z, w, l, h]
         state:
-          [x, y, yaw, z, h, w, l]
+          [x, y, yaw, z, w, l, h]
         """
-        self.reorder_samac = [0, 1, 3, 2, 5, 4, 6]
-        self.reorder_back_samac = [0, 1, 3, 2, 5, 4, 6]
+        self.reorder_samac = [0, 1, 3, 2, 4, 5, 6]
+        self.reorder_back_samac = [0, 1, 3, 2, 4, 5, 6]
 
         """
         observation:
@@ -388,7 +311,6 @@ class AB3DMOT(object):
                 comp_trks = trks[:, self.tracker_generator.state_on]
                 comp_trks_S = np.zeros((len(trks), self.tracker_generator.dim_z, self.tracker_generator.dim_z))
                 comp_trks_S[:, np.ones((self.tracker_generator.dim_z, self.tracker_generator.dim_z), dtype=bool)] = trks_S[:, self.tracker_generator.state_cov_on]
-                # print(comp_trks_S.shape)
                 matched, reverse, unmatched_dets, unmatched_trks = associate(dets=comp_dets, trks=comp_trks, trks_S=comp_trks_S, yaw_pos=yaw_pos,
                                                                          mahalanobis_threshold=self.tracker_generator.association_threshold,
                                                                          print_debug=print_debug,
@@ -397,7 +319,6 @@ class AB3DMOT(object):
             matched, reverse, unmatched_dets, unmatched_trks = np.empty((0, 2), dtype=int), np.zeros((len(dets), 0), dtype=np.bool), np.arange(len(dets)), np.empty((0, 8, 3), dtype=int)
 
         # UPDATE
-        # update matched trackers with assigned detections
         for t, trk in enumerate(self.trackers):
             if t not in unmatched_trks:
                 d = matched[np.where(matched[:, 1] == t)[0], 0]  # a list of index
@@ -411,17 +332,15 @@ class AB3DMOT(object):
                 trk.atracker.update(bbox3d[3:7])
 
         # NEW TRACK GENERATION
-        # create and initialise new trackers for unmatched detections
-        for i in unmatched_dets:  # a scalar of index
+        for i in unmatched_dets:
             trk = self.tracker_generator.generate_tracker(z=dets[i, :], track_score=info[i][0])
             self.trackers.append(trk)
-
 
         # TRACK MANAGEMENT
         i = len(self.trackers)
         for trk in reversed(self.trackers):
-            m_z = trk.mtracker.get_state()  # bbox location
-            a_z = trk.atracker.get_state()  # bbox location
+            m_z = trk.mtracker.get_state()
+            a_z = trk.atracker.get_state()
             bbox3d = np.concatenate((m_z, a_z))
             bbox3d = bbox3d[self.reorder_back_samac].reshape(1, -1).squeeze()
             if trk.info.tracking:
@@ -472,24 +391,24 @@ def track_nuscenes(data_split, covariance_id, match_distance, match_threshold, m
     mkdir_if_missing(save_dir)
     scene_splits = None
     version = None
-    if 'train' == data_split:
-        detection_file = '/media/marco/60348B1F348AF776/nuscene/detection/megvii_train.json'
-        data_root = '/media/marco/60348B1F348AF776/nuscene/raw/v1.0-trainval'
-        version = 'v1.0-trainval'
-        output_path = os.path.join(save_dir, 'results.json')
-        scene_splits = splits.train
-    elif 'val' == data_split:
-        detection_file = '/media/marco/60348B1F348AF776/nuscene/detection/megvii_val.json'
-        data_root = '/media/marco/60348B1F348AF776/nuscene/raw/v1.0-trainval'
-        version = 'v1.0-trainval'
-        output_path = os.path.join(save_dir, 'results.json')
-        scene_splits = splits.val
-    elif 'test' == data_split:
-        detection_file = '/media/marco/60348B1F348AF776/nuscene/detection/megvii_test.json'
-        data_root = '/media/marco/60348B1F348AF776/nuscene/raw/v1.0-test'
-        version = 'v1.0-test'
-        output_path = os.path.join(save_dir, 'results.json')
-        scene_splits = splits.test
+    # if 'train' == data_split:
+    #     detection_file = '/media/marco/60348B1F348AF776/nuscene/detection/megvii_train.json'
+    #     data_root = '/media/marco/60348B1F348AF776/nuscene/raw/v1.0-trainval'
+    #     version = 'v1.0-trainval'
+    #     output_path = os.path.join(save_dir, 'results.json')
+    #     scene_splits = splits.train
+    # elif 'val' == data_split:
+    #     detection_file = '/media/marco/60348B1F348AF776/nuscene/detection/megvii_val.json'
+    #     data_root = '/media/marco/60348B1F348AF776/nuscene/raw/v1.0-trainval'
+    #     version = 'v1.0-trainval'
+    #     output_path = os.path.join(save_dir, 'results.json')
+    #     scene_splits = splits.val
+    # elif 'test' == data_split:
+    #     detection_file = '/media/marco/60348B1F348AF776/nuscene/detection/megvii_test.json'
+    #     data_root = '/media/marco/60348B1F348AF776/nuscene/raw/v1.0-test'
+    #     version = 'v1.0-test'
+    #     output_path = os.path.join(save_dir, 'results.json')
+    #     scene_splits = splits.test
     # elif 'mini_val' == data_split:
     #     detection_file = '/media/marco/60348B1F348AF776/nuscene/detection/megvii_mini_val.json'
     #     data_root = '/media/marco/60348B1F348AF776/nuscene/raw/v1.0-mini'
@@ -502,15 +421,33 @@ def track_nuscenes(data_split, covariance_id, match_distance, match_threshold, m
     #     version = 'v1.0-mini'
     #     output_path = os.path.join(save_dir, 'results.json')
     #     scene_splits = splits.mini_train
+    if 'train' == data_split:
+        detection_file = '/Users/marco/Desktop/My/my_research/xyztracker/dataset/nuscenes/detection/megvii_train.json'
+        data_root = '/Users/marco/Desktop/My/my_research/xyztracker/dataset/nuscenes/v1.0-trainval'
+        version = 'v1.0-trainval'
+        output_path = os.path.join(save_dir, 'results.json')
+        scene_splits = splits.train
+    elif 'val' == data_split:
+        detection_file = '/Users/marco/Desktop/My/my_research/xyztracker/dataset/nuscenes/detection/megvii_val.json'
+        data_root = '/Users/marco/Desktop/My/my_research/xyztracker/dataset/nuscenes/v1.0-trainval'
+        version = 'v1.0-trainval'
+        output_path = os.path.join(save_dir, 'results.json')
+        scene_splits = splits.val
+    elif 'test' == data_split:
+        detection_file = '/Users/marco/Desktop/My/my_research/xyztracker/dataset/nuscenes/detection/megvii_test.json'
+        data_root = '/Users/marco/Desktop/My/my_research/xyztracker/dataset/nuscenes/v1.0-test'
+        version = 'v1.0-test'
+        output_path = os.path.join(save_dir, 'results.json')
+        scene_splits = splits.test
     elif 'mini_val' == data_split:
-        detection_file = '/Users/marco/Desktop/My/my_research/xyztracker/dataset/v1.0-mini/detection/megvii_mini_val.json'
-        data_root = '/Users/marco/Desktop/My/my_research/xyztracker/dataset/v1.0-mini'
+        detection_file = '/Users/marco/Desktop/My/my_research/xyztracker/dataset/nuscenes/detection/megvii_mini_val.json'
+        data_root = '/Users/marco/Desktop/My/my_research/xyztracker/dataset/nuscenes/v1.0-mini'
         version = 'v1.0-mini'
         output_path = os.path.join(save_dir, 'results.json')
         scene_splits = splits.mini_val
     elif 'mini_train' == data_split:
-        detection_file = '/Users/marco/Desktop/My/my_research/xyztracker/dataset/v1.0-mini/detection/megvii_mini_train.json'
-        data_root = '/Users/marco/Desktop/My/my_research/xyztracker/dataset/v1.0-mini'
+        detection_file = '/Users/marco/Desktop/My/my_research/xyztracker/dataset/nuscenes/detection/megvii_mini_train.json'
+        data_root = '/Users/marco/Desktop/My/my_research/xyztracker/dataset/nuscenes/v1.0-mini'
         version = 'v1.0-mini'
         output_path = os.path.join(save_dir, 'results.json')
         scene_splits = splits.mini_train
@@ -699,20 +636,3 @@ if __name__ == '__main__':
     #     print('track argoverse')
 
 
-
-# def quaternion_yaw(q: Quaternion) -> float:
-#     """
-#     Calculate the yaw angle from a quaternion.
-#     Note that this only works for a quaternion that represents a box in lidar or global coordinate frame.
-#     It does not work for a box in the camera frame.
-#     :param q: Quaternion of interest.
-#     :return: Yaw angle in radians.
-#     """
-#
-#     # Project into xy plane.
-#     v = np.dot(q.rotation_matrix, np.array([1, 0, 0]))
-#
-#     # Measure yaw using arctan.
-#     yaw = np.arctan2(v[1], v[0])
-#
-#     return yaw

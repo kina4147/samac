@@ -231,7 +231,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Evaluate nuScenes tracking results.',
                                      formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     parser.add_argument('--result_path', type=str, help='The submission as a JSON file.')
-    parser.add_argument('--output_dir', type=str, default='~/nuscenes-metrics',
+    parser.add_argument('--output_dir', type=str, default='results/',
                         help='Folder to store result metrics, graphs and example visualizations.')
     parser.add_argument('--eval_set', type=str, default='val',
                         help='Which dataset split to evaluate on, train, val or test.')
@@ -253,20 +253,34 @@ if __name__ == "__main__":
     result_path_ = os.path.expanduser(args.result_path)
     output_dir_ = os.path.expanduser(args.output_dir)
     eval_set_ = args.eval_set
-    dataroot_ = args.dataroot
-    version_ = args.version
-    config_path = args.config_path
     render_curves_ = bool(args.render_curves)
     verbose_ = bool(args.verbose)
     render_classes_ = args.render_classes
 
-    if config_path == '':
-        cfg_ = config_factory('tracking_nips_2019')
-    else:
-        with open(config_path, 'r') as _f:
-            cfg_ = TrackingConfig.deserialize(json.load(_f))
+    cfg_ = config_factory('tracking_nips_2019')
+
+    if 'train' == eval_set_:
+        detection_file_ = '/Users/marco/Desktop/My/my_research/xyztracker/dataset/nuscenes/detection/megvii_train.json'
+        data_root_ = '/Users/marco/Desktop/My/my_research/xyztracker/dataset/nuscenes/v1.0-trainval'
+        version_ = 'v1.0-trainval'
+    elif 'val' == eval_set_:
+        detection_file_ = '/Users/marco/Desktop/My/my_research/xyztracker/dataset/nuscenes/detection/megvii_val.json'
+        data_root_ = '/Users/marco/Desktop/My/my_research/xyztracker/dataset/nuscenes/v1.0-trainval'
+        version_ = 'v1.0-trainval'
+    elif 'test' == eval_set_:
+        detection_file_ = '/Users/marco/Desktop/My/my_research/xyztracker/dataset/nuscenes/detection/megvii_test.json'
+        data_root_ = '/Users/marco/Desktop/My/my_research/xyztracker/dataset/nuscenes/v1.0-test'
+        version_ = 'v1.0-test'
+    elif 'mini_val' == eval_set_:
+        detection_file_ = '/Users/marco/Desktop/My/my_research/xyztracker/dataset/nuscenes/detection/megvii_mini_val.json'
+        data_root_ = '/Users/marco/Desktop/My/my_research/xyztracker/dataset/nuscenes/v1.0-mini'
+        version_ = 'v1.0-mini'
+    elif 'mini_train' == eval_set_:
+        detection_file_ = '/Users/marco/Desktop/My/my_research/xyztracker/dataset/nuscenes/detection/megvii_mini_train.json'
+        data_root_ = '/Users/marco/Desktop/My/my_research/xyztracker/dataset/nuscenes/v1.0-mini'
+        version_ = 'v1.0-mini'
 
     nusc_eval = TrackingEval(config=cfg_, result_path=result_path_, eval_set=eval_set_, output_dir=output_dir_,
-                             nusc_version=version_, nusc_dataroot=dataroot_, verbose=verbose_,
+                             nusc_version=version_, nusc_dataroot=data_root_, verbose=verbose_,
                              render_classes=render_classes_)
     nusc_eval.main(render_curves=render_curves_)

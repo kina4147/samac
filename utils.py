@@ -240,8 +240,8 @@ def corners(bbox3d):
         The last four are the ones facing backwards.
     """
     # w, l, h =  * wlh_factor
-    l = bbox3d[4]
-    w = bbox3d[5]
+    w = bbox3d[4]
+    l = bbox3d[5]
     h = bbox3d[6]
 
     R = rotz(bbox3d[2])

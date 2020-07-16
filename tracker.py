@@ -26,16 +26,14 @@ class TrackerGenerator(object):
         if tracking_name == 'bicycle': # holonomic
             self.head_appearance_on = False
             self.head_motion_on = True
-            # self.imm_on = True
             self.association_metrics = ['mdist']
-        elif tracking_name == 'bus':
-            self.head_appearance_on = True
-            self.head_motion_on = False
-            self.association_metrics = ['mdist']
-        elif tracking_name == 'car':
+        elif tracking_name == 'bus': # motional
             self.head_appearance_on = True
             self.head_motion_on = True
-            self.imm_on = False
+            self.association_metrics = ['mdist']
+        elif tracking_name == 'car': # motional
+            self.head_appearance_on = True
+            self.head_motion_on = True
             self.association_metrics = ['mdist']
         elif tracking_name == 'motorcycle':
             self.head_appearance_on = False
@@ -47,15 +45,15 @@ class TrackerGenerator(object):
             self.association_metrics = ['mdist']
         elif tracking_name == 'trailer':
             self.head_appearance_on = False
-            self.head_motion_on = False
+            self.head_motion_on = True
             self.association_metrics = ['mdist']
         elif tracking_name == 'truck':
             self.head_appearance_on = True
-            self.head_motion_on = False
+            self.head_motion_on = True
             self.association_metrics = ['mdist']
         else:
             assert False
-        cov = Covariance(3)
+        cov = Covariance(1)
         self.mmodel = {}
         if self.head_appearance_on:  # x, y, theta
             self.mstate_on = np.array([True, True, True])
@@ -67,16 +65,16 @@ class TrackerGenerator(object):
                 self.mmodel['fx'] = mm.cv_fx # cv vs. ctrv
                 self.mmodel['hx'] = mm.hx_3
                 self.mmodel['residual'] = mm.residual
-                self.mmodel['P'] = cov.m_nonlinear_P[tracking_name][:self.dim_m_x, :self.dim_m_x]
-                self.mmodel['Q'] = cov.m_nonlinear_Q[tracking_name][:self.dim_m_x, :self.dim_m_x]
-                self.mmodel['R'] = cov.mR[tracking_name][:self.dim_m_z, :self.dim_m_z]
+                self.mmodel['P'] = cov.m_head_P[tracking_name][:self.dim_m_x, :self.dim_m_x]
+                self.mmodel['Q'] = cov.m_head_Q[tracking_name][:self.dim_m_x, :self.dim_m_x]
+                self.mmodel['R'] = cov.m_R[tracking_name][:self.dim_m_z, :self.dim_m_z]
             else:
                 self.linear_motion = True
                 self.dim_m_x = 6 # x, y, theta, x', y', theta'
                 self.dim_m_z = 3 # x, y, theta, x', y', theta'
-                self.mmodel['P'] = cov.m_linear_P[tracking_name][:self.dim_m_x, :self.dim_m_x]
-                self.mmodel['Q'] = cov.m_linear_Q[tracking_name][:self.dim_m_x, :self.dim_m_x]
-                self.mmodel['R'] = cov.mR[tracking_name][:self.dim_m_z, :self.dim_m_z]
+                self.mmodel['P'] = cov.m_no_head_P[tracking_name][:self.dim_m_x, :self.dim_m_x]
+                self.mmodel['Q'] = cov.m_no_head_Q[tracking_name][:self.dim_m_x, :self.dim_m_x]
+                self.mmodel['R'] = cov.m_R[tracking_name][:self.dim_m_z, :self.dim_m_z]
         else:
             self.mstate_on = np.array([True, True, False])
             self.num_mstate = np.count_nonzero(self.mstate_on)
@@ -87,24 +85,27 @@ class TrackerGenerator(object):
                 self.mmodel['fx'] = mm.cv_fx # cv vs. ctrv
                 self.mmodel['hx'] = mm.hx_2
                 self.mmodel['residual'] = mm.residual
-                self.mmodel['P'] = cov.m_nonlinear_P[tracking_name][:self.dim_m_x, :self.dim_m_x]
-                self.mmodel['Q'] = cov.m_nonlinear_Q[tracking_name][:self.dim_m_x, :self.dim_m_x]
-                self.mmodel['R'] = cov.mR[tracking_name][:self.dim_m_z, :self.dim_m_z]
+                self.mmodel['P'] = cov.m_head_P[tracking_name][:self.dim_m_x, :self.dim_m_x]
+                self.mmodel['Q'] = cov.m_head_Q[tracking_name][:self.dim_m_x, :self.dim_m_x]
+                self.mmodel['R'] = cov.m_R[tracking_name][:self.dim_m_z, :self.dim_m_z]
             else:
                 self.linear_motion = True
                 self.dim_m_x = 5 # x, y, theta, x', y'
                 self.dim_m_z = 3 # x, y, theta, x', y'
-                self.mmodel['P'] = cov.m_linear_P[tracking_name][:self.dim_m_x, :self.dim_m_x]
-                self.mmodel['Q'] = cov.m_linear_Q[tracking_name][:self.dim_m_x, :self.dim_m_x]
-                self.mmodel['R'] = cov.mR[tracking_name][:self.dim_m_z, :self.dim_m_z]
+                self.mmodel['P'] = cov.m_no_head_P[tracking_name][:self.dim_m_x, :self.dim_m_x]
+                self.mmodel['Q'] = cov.m_no_head_Q[tracking_name][:self.dim_m_x, :self.dim_m_x]
+                self.mmodel['R'] = cov.m_R[tracking_name][:self.dim_m_z, :self.dim_m_z]
 
+        # z, w, l, h
         self.dim_a_x = 4
         self.dim_a_z = 4 # np.count_nonzero(self.astate_on)
         self.amodel = {}
-        self.amodel['P'] = cov.aP[tracking_name][0:self.dim_a_x, 0:self.dim_a_x]
-        self.amodel['Q'] = cov.aQ[tracking_name][0:self.dim_a_x, 0:self.dim_a_x]
-        self.amodel['R'] = cov.aR[tracking_name][0:self.dim_a_z, 0:self.dim_a_z]
-        if tracking_name == 'bicycle' or tracking_name == 'motorcycle' or tracking_name == 'pedestrian':
+        self.amodel['P'] = cov.a_P[tracking_name][0:self.dim_a_x, 0:self.dim_a_x]
+        self.amodel['Q'] = cov.a_Q[tracking_name][0:self.dim_a_x, 0:self.dim_a_x]
+        self.amodel['R'] = cov.a_R[tracking_name][0:self.dim_a_z, 0:self.dim_a_z]
+        if tracking_name == 'bicycle' or tracking_name == 'motorcycle':
+            self.astate_on = np.array([True, True, True, True])
+        elif tracking_name == 'pedestrian':
             self.astate_on = np.array([True, False, False, True])
         elif tracking_name == 'bus' or tracking_name == 'trailer' or tracking_name == 'truck':
             self.astate_on = np.array([True, True, False, True])
