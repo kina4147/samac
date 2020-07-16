@@ -273,8 +273,8 @@ class AB3DMOT(object):
         print_debug = False
         self.frame_count += 1
         dets, info, boxes = dets_all['dets'], dets_all['info'], dets_all['boxes']  # dets: N x 7, float numpy array
-        dets = dets[:, self.reorder_samac]
-
+        if len(dets) > 0:
+            dets = dets[:, self.reorder_samac]
         trks = []
         trks_S = []
         to_del = []
@@ -296,9 +296,8 @@ class AB3DMOT(object):
                 trcks_x.append(trk.mtracker.filter.x)
         for t in reversed(to_del):
             self.trackers.pop(t)
-
         # association
-        if len(trks) > 0:
+        if len(trks) > 0 and len(dets) > 0:
             trks = np.stack(trks, axis=0)
             trks_S = np.stack(trks_S, axis=0)
             # DATA ASSOCIATION
@@ -316,7 +315,7 @@ class AB3DMOT(object):
                                                                          print_debug=print_debug,
                                                                          match_algorithm=match_algorithm)
         else:
-            matched, reverse, unmatched_dets, unmatched_trks = np.empty((0, 2), dtype=int), np.zeros((len(dets), 0), dtype=np.bool), np.arange(len(dets)), np.empty((0, 8, 3), dtype=int)
+            matched, reverse, unmatched_dets, unmatched_trks = np.empty((0, 2), dtype=int), np.zeros((len(dets), len(trks)), dtype=np.bool), np.arange(len(dets)), np.arange(len(trks))
 
         # UPDATE
         for t, trk in enumerate(self.trackers):
@@ -356,8 +355,10 @@ class AB3DMOT(object):
                     if trk.info.hit_streak > 0 or self.frame_count <= self.min_hits:
                         ret.append(np.concatenate((bbox3d, [trk.info.id + 1], [trk.info.track_score])).reshape(1,
                                                                                                            -1))  # +1 as MOT benchmark requires positive
+
                 else:
                     trk.info.erase = True
+
             i -= 1
             # remove dead tracklet
             if trk.info.erase:
@@ -526,6 +527,7 @@ def track_nuscenes(data_split, covariance_id, match_distance, match_threshold, m
 
                 # x, y, z, yaw, w, l, h
                 yaw = quaternion_yaw(Quaternion(dbox.rotation))
+                yaw = angle_in_range(yaw)
                 detection = np.array([dbox.translation[0], dbox.translation[1], dbox.translation[2], yaw, dbox.size[0], dbox.size[1], dbox.size[2]])
                 box = Box(dbox.translation, dbox.size, Quaternion(dbox.rotation))
                 # point in box ###########################################
@@ -555,29 +557,31 @@ def track_nuscenes(data_split, covariance_id, match_distance, match_threshold, m
             total_frames += 1
             start_time = time.time()
             for tracking_name in NUSCENES_TRACKING_NAMES:
-                if dets_all[tracking_name]['dets'].shape[0] > 0:
-                    trackers = mot_trackers[tracking_name].samac_update(dets_all[tracking_name], match_distance,
-                                                                  match_threshold, match_algorithm, scene_token)
+                # if dets_all[tracking_name]['dets'].shape[0] > 0:
+                trackers = mot_trackers[tracking_name].samac_update(dets_all[tracking_name], match_distance,
+                                                              match_threshold, match_algorithm, scene_token)
 
-                    # x, y, z, theta, w, l, h
-                    for i in range(trackers.shape[0]):
-                        sample_result = format_sample_result(current_sample_token, tracking_name, trackers[i])
-                        results[current_sample_token].append(sample_result)
-                        if viz_on:
-                            tbox = Box((trackers[i][0], trackers[i][1], trackers[i][2]), (trackers[i][4], trackers[i][5], trackers[i][6]), Quaternion(axis=[0., 0., 1.], angle=trackers[i][3]))
-                            tboxes[tracking_name].append(tbox)
+                # x, y, z, theta, w, l, h
+                for i in range(trackers.shape[0]):
+                    sample_result = format_sample_result(current_sample_token, tracking_name, trackers[i])
+                    results[current_sample_token].append(sample_result)
+                    if viz_on:
+                        tbox = Box((trackers[i][0], trackers[i][1], trackers[i][2]), (trackers[i][4], trackers[i][5], trackers[i][6]), Quaternion(axis=[0., 0., 1.], angle=trackers[i][3]))
+                        tboxes[tracking_name].append(tbox)
 
             # visualization
             if viz_on:
                 ax.plot(0, 0, '+', color='black')
-                for i, box in enumerate(dboxes['pedestrian']):
+                for box in dboxes['bus']:
                     box.translate(-np.array(pose_record['translation']))
                     box.rotate(Quaternion(pose_record['rotation']).inverse)
                     box.translate(-np.array(cs_record['translation']))
                     box.rotate(Quaternion(cs_record['rotation']).inverse)
-                    box.render(ax, view=np.eye(4), colors=('g', 'g', 'g'), linewidth=2)
+                    box.wlh = box.wlh * 1.2
+                    box.render(ax, view=np.eye(4), colors=('g', 'g', 'g'), linewidth=3)
 
-                for box in tboxes['pedestrian']:
+                # for ttracking_name in tboxes:
+                for box in tboxes['bus']:
                     box.translate(-np.array(pose_record['translation']))
                     box.rotate(Quaternion(pose_record['rotation']).inverse)
                     box.translate(-np.array(cs_record['translation']))
@@ -586,11 +590,11 @@ def track_nuscenes(data_split, covariance_id, match_distance, match_threshold, m
 
                 if point_on:
                     ax.scatter(lidar_points.points[0, :], lidar_points.points[1, :], s=0.1)
-                eval_range = 50
+                eval_range = 70
                 axes_limit = eval_range + 3  # Slightly bigger to include boxes that extend beyond the range.
                 ax.set_xlim(-axes_limit, axes_limit)
                 ax.set_ylim(-axes_limit, axes_limit)
-                plt.title(current_sample_token)
+                plt.title(scene_token + ': ' + current_sample_token)
                 plt.pause(1e-3)
                 ax.clear()
 
