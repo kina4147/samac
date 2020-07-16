@@ -258,7 +258,26 @@ if __name__ == "__main__":
     render_classes_ = args.render_classes
 
     cfg_ = config_factory('tracking_nips_2019')
-
+    # if 'train' == eval_set_:
+    #     detection_file_ = '/media/marco/60348B1F348AF776/nuscene/detection/megvii_train.json'
+    #     data_root_ = '/media/marco/60348B1F348AF776/nuscene/raw/v1.0-trainval'
+    #     version_ = 'v1.0-trainval'
+    # elif 'val' == eval_set_:
+    #     detection_file_ = '/media/marco/60348B1F348AF776/nuscene/detection/megvii_val.json'
+    #     data_root_ = '/media/marco/60348B1F348AF776/nuscene/raw/v1.0-trainval'
+    #     version_ = 'v1.0-trainval'
+    # elif 'test' == eval_set_:
+    #     detection_file_ = '/media/marco/60348B1F348AF776/nuscene/detection/megvii_test.json'
+    #     data_root_ = '/media/marco/60348B1F348AF776/nuscene/raw/v1.0-test'
+    #     version_ = 'v1.0-test'
+    # elif 'mini_val' == eval_set_:
+    #     detection_file_ = '/media/marco/60348B1F348AF776/nuscene/detection/megvii_mini_val.json'
+    #     data_root_ = '/media/marco/60348B1F348AF776/nuscene/raw/v1.0-mini'
+    #     version_ = 'v1.0-mini'
+    # elif 'mini_train' == eval_set_:
+    #     detection_file_ = '/media/marco/60348B1F348AF776/nuscene/detection/megvii_mini_train.json'
+    #     data_root_ = '/media/marco/60348B1F348AF776/nuscene/raw/v1.0-mini'
+    #     version_ = 'v1.0-mini'
     if 'train' == eval_set_:
         detection_file_ = '/Users/marco/Desktop/My/my_research/xyztracker/dataset/nuscenes/detection/megvii_train.json'
         data_root_ = '/Users/marco/Desktop/My/my_research/xyztracker/dataset/nuscenes/v1.0-trainval'
