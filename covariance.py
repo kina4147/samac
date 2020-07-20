@@ -126,12 +126,12 @@ class Covariance(object):
         # self.mdist_threshold[6] = 12.592
         # self.mdist_threshold[7] = 14.067
         # 90%
-        self.mdist_threshold[2] = 4.605
-        self.mdist_threshold[3] = 6.251
-        self.mdist_threshold[4] = 7.779
-        self.mdist_threshold[5] = 9.2361
-        self.mdist_threshold[6] = 10.645
-        self.mdist_threshold[7] = 12.017
+        self.mdist_threshold[2] = 4.605# 4.1 #
+        self.mdist_threshold[3] = 6.251# 5.6 #
+        self.mdist_threshold[4] = 7.14 # 7.779# 7.0 #
+        self.mdist_threshold[5] = 9.2361# 8.4 #
+        self.mdist_threshold[6] = 10.645# 9.7 #
+        self.mdist_threshold[7] = 11.0 # 12.017# 11.0 #
     elif covariance_id == 2:
         m_head_P = {'bicycle': [0.053909816622672024, 0.05039430776336743, 0.6893872077951395, 0.06343709836527914,
                                 0.7505281764663858],

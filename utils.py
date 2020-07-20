@@ -147,8 +147,11 @@ def bbox_adjacency_2d(box_a, box_b):
     max_size_b = np.max(box_b[4:6])
     return dist < max_size_a + max_size_b
 
+def adjacency_2d(box_a, box_b):
+    dist = np.linalg.norm(box_a[0:2]-box_b[0:2])
+    return dist < 5.0
 
-def bbox_iou2d(box_a, box_b):
+def bbox_iou2d(box_a, box_b, box_a_divider=True):
     """
     A simplified calculation of 3d bounding box intersection.
     It is assumed that the bounding box is only rotated
@@ -162,10 +165,14 @@ def bbox_iou2d(box_a, box_b):
     xy_intersection = xy_poly_a.intersection(xy_poly_b).area
     if xy_intersection == 0:
         return 0
-    union = (xy_poly_a.area + xy_poly_b.area - xy_intersection)
-    if union == 0:
-        return 0
-    return xy_intersection / union
+
+    if box_a_divider:
+        return xy_intersection / xy_poly_a.area
+    else:
+        union = (xy_poly_a.area + xy_poly_b.area - xy_intersection)
+        if union == 0:
+            return 0
+        return xy_intersection / union
 
 
 def bbox_iou3d(box_a, box_b):
@@ -262,7 +269,7 @@ def corners(bbox3d):
     corners[1, :] = corners[1, :] + bbox3d[1]
     corners[2, :] = corners[2, :] + bbox3d[3]
 
-    return np.transpose(corners)
+    return corners
 
 
 

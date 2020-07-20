@@ -13,7 +13,6 @@ class TrackerGenerator(object):
     def __init__(self, tracking_name='car'):
         self.tracking_name = tracking_name
         # x, y, z, yaw, w, l, h, x', y', z', yaw', w', l', h'
-        yaw_pos = 2
         self.association_metrics = ['mdist'] # 'iou' or 'mdist' 'mahalanobis distance'
         self.mstate_on = np.array([True, True, True])
         self.dim_m_x = 5
@@ -22,6 +21,7 @@ class TrackerGenerator(object):
         self.dim_a_x = 4
         self.dim_a_z = 4
         self.imm_on = False
+        self.yaw_pos = 2
         # for tracking_name in NUSCENES_TRACKING_NAMES:
         if tracking_name == 'bicycle': # holonomic
             self.head_appearance_on = False
@@ -53,6 +53,24 @@ class TrackerGenerator(object):
             self.association_metrics = ['mdist']
         else:
             assert False
+
+        if tracking_name == 'bicycle' or tracking_name == 'motorcycle':
+            self.astate_on = np.array([True, True, True, True])
+        elif tracking_name == 'pedestrian':
+            self.astate_on = np.array([True, False, False, True])
+        elif tracking_name == 'bus' or tracking_name == 'trailer' or tracking_name == 'truck':
+            self.astate_on = np.array([True, True, False, True])
+        elif tracking_name == 'car':
+            self.astate_on = np.array([True, True, True, True])
+        else:
+            assert False
+
+        # reference
+        # self.head_appearance_on = True
+        # self.head_motion_on = False
+        # self.association_metrics = ['mdist']
+        # self.astate_on = np.array([True, True, True, True])
+
         cov = Covariance(1)
         self.mmodel = {}
         if self.head_appearance_on:  # x, y, theta
@@ -77,6 +95,7 @@ class TrackerGenerator(object):
                 self.mmodel['R'] = cov.m_R[tracking_name][:self.dim_m_z, :self.dim_m_z]
         else:
             self.mstate_on = np.array([True, True, False])
+            self.yaw_pos = -1
             self.num_mstate = np.count_nonzero(self.mstate_on)
             if self.head_motion_on:  # x, y, theta, v, theta'
                 self.linear_motion = False
@@ -103,22 +122,13 @@ class TrackerGenerator(object):
         self.amodel['P'] = cov.a_P[tracking_name][0:self.dim_a_x, 0:self.dim_a_x]
         self.amodel['Q'] = cov.a_Q[tracking_name][0:self.dim_a_x, 0:self.dim_a_x]
         self.amodel['R'] = cov.a_R[tracking_name][0:self.dim_a_z, 0:self.dim_a_z]
-        if tracking_name == 'bicycle' or tracking_name == 'motorcycle':
-            self.astate_on = np.array([True, True, True, True])
-        elif tracking_name == 'pedestrian':
-            self.astate_on = np.array([True, False, False, True])
-        elif tracking_name == 'bus' or tracking_name == 'trailer' or tracking_name == 'truck':
-            self.astate_on = np.array([True, True, False, True])
-        elif tracking_name == 'car':
-            self.astate_on = np.array([True, True, True, True])
-        else:
-            assert False
+
         self.state_on = np.concatenate((self.mstate_on, self.astate_on))
         self.state_cov_on = self.state_on.reshape(-1, 1).dot(self.state_on.reshape(-1, 1).T)
         self.dim_z = np.count_nonzero(self.state_on)
-        self.association_threshold = cov.mdist_threshold[self.dim_z]
+        self.mdist_thres = cov.mdist_threshold[self.dim_z]
 
-    def generate_tracker(self, z, track_score=0.0):
+    def generate_tracker(self, z, info, track_score=0.0):
         # z: x, y, yaw, z, l, w, h
         m_z = np.copy(z[0:3])
         a_z = np.copy(z[3:7])
@@ -146,7 +156,7 @@ class TrackerGenerator(object):
         atracker = KFTracker(z=a_z, dim_x=self.dim_a_x, dim_z=self.dim_a_z, dim_out=self.dim_a_z, yaw_pos=-1, model=self.amodel, tracking_name=self.tracking_name)
 
         # Track Info Initialization
-        info = TrackerInfo(state_on=np.concatenate((self.mstate_on, self.astate_on)), track_score=track_score, tracking_name=self.tracking_name)
+        info = TrackerInfo(state_on=np.concatenate((self.mstate_on, self.astate_on)), info=info, track_score=track_score, tracking_name=self.tracking_name)
 
         # tracker = {'info': info, 'mtracker': mtracker, 'atracker': atracker}
         tracker = SAMACTracker(info, mtracker, atracker)
