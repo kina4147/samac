@@ -15,20 +15,62 @@ from nuscenes.eval.common.loaders import load_prediction, load_gt, add_center_di
 from nuscenes.eval.tracking.loaders import create_tracks
 from pyquaternion import Quaternion
 from nuscenes.eval.common.utils import quaternion_yaw
-from utils import angle_in_range, corners, bbox_iou2d, bbox_iou3d, bbox_adjacency_2d
+from utils import rotz, angle_in_range, bbox_iou2d, bbox_iou3d, bbox_adjacency_2d
 
 import argparse
 
 NUSCENES_TRACKING_NAMES = [
-  'bicycle',
-  'bus',
-  'car',
-  'motorcycle',
-  'pedestrian',
-  'trailer',
-  'truck'
+  'bicycle'#,
+  # 'bus',
+  # 'car',
+  # 'motorcycle',
+  # 'pedestrian',
+  # 'trailer',
+  # 'truck'
 ]
 
+def corners(bbox3d):
+    """
+    Draw 3d bounding box in image
+        qs: (8,3) array of vertices for the 3d box in following order:
+            5 -------- 4
+           /|         /|
+          6 -------- 7 .
+          | |        | |
+          . 1 -------- 0
+          |/         |/       z|__y
+          2 -------- 3         /x
+
+    Returns the bounding box corners.
+
+    :param wlh_factor: Multiply w, l, h by a factor to scale the box.
+    :return: <np.float: 3, 8>. First four corners are the ones facing forward.
+        The last four are the ones facing backwards.
+    """
+    # w, l, h =  * wlh_factor
+    w = bbox3d[4]
+    l = bbox3d[5]
+    h = bbox3d[6]
+
+    R = rotz(bbox3d[3])
+    # 3D bounding box corners. (Convention: x points forward, y to the left, z up.)
+    # x_corners = l / 2 * np.array([1, 1, 1, 1, -1, -1, -1, -1])
+    # y_corners = w / 2 * np.array([1, -1, -1, 1, 1, -1, -1, 1])
+    # z_corners = h / 2 * np.array([1, 1, -1, -1, 1, 1, -1, -1])
+    x_corners = l / 2 * np.array([-1, -1, 1, 1, -1, -1, 1, 1])
+    y_corners = w / 2 * np.array([1, -1, -1, 1, 1, -1, -1, 1])
+    z_corners = h / 2 * np.array([-1, -1, -1, -1, 1, 1, 1, 1])
+    corners = np.vstack((x_corners, y_corners, z_corners))
+
+    # Rotate
+    corners = np.dot(R, corners)
+
+    # Translate
+    corners[0, :] = corners[0, :] + bbox3d[0]
+    corners[1, :] = corners[1, :] + bbox3d[1]
+    corners[2, :] = corners[2, :] + bbox3d[2]
+
+    return corners
 def rotation_to_positive_z_angle(rotation):
   q = Quaternion(rotation)
   angle = q.angle if q.axis[2] > 0 else -q.angle
@@ -77,7 +119,7 @@ def get_mean(tracks):
         if box.tracking_id in gt_trajectory_map[box.tracking_name][scene_token] and t_idx-1 in gt_trajectory_map[box.tracking_name][scene_token][box.tracking_id]:
           prev_box_data = gt_trajectory_map[box.tracking_name][scene_token][box.tracking_id][t_idx-1]
           dist = np.sqrt((box_data[0] - prev_box_data[0])**2 + (box_data[1] - prev_box_data[1])**2)
-          residual_vel = box_data[:4] - prev_box_data[:4] # x, y, yaw
+          residual_vel = box_data[:4] - prev_box_data[:4] # x, y, z, yaw
           # angle in range
           residual_vel[yaw_pos] = angle_in_range(residual_vel[yaw_pos])
           box_data[4:8] = residual_vel
@@ -137,6 +179,35 @@ def get_mean(tracks):
   return mean, std, var #, head_std, head_var, appearance_mean, appearance_std, appearance_var
 
 
+def greedy_match(distance_matrix, max_dist = 1000000):
+    '''
+    Find the one-to-one matching using greedy allgorithm choosing small distance
+    distance_matrix: (num_detections, num_tracks)
+    '''
+    matched_indices = []
+
+    num_detections, num_tracks = distance_matrix.shape
+    distance_1d = distance_matrix.reshape(-1)
+    index_1d = np.argsort(distance_1d)
+    index_2d = np.stack([index_1d // num_tracks, index_1d % num_tracks], axis=1)
+    detection_id_matches_to_tracking_id = [-1] * num_detections
+    tracking_id_matches_to_detection_id = [-1] * num_tracks
+
+
+    for sort_i in range(index_2d.shape[0]):
+        detection_id = int(index_2d[sort_i][0])
+        tracking_id = int(index_2d[sort_i][1])
+        if tracking_id_matches_to_detection_id[tracking_id] == -1 and detection_id_matches_to_tracking_id[
+            detection_id] == -1:
+            tracking_id_matches_to_detection_id[tracking_id] = detection_id
+            detection_id_matches_to_tracking_id[detection_id] = tracking_id
+            if distance_matrix[detection_id, tracking_id] > max_dist:
+                break
+            matched_indices.append([detection_id, tracking_id])
+
+    matched_indices = np.array(matched_indices)
+    return matched_indices
+
 def matching_and_get_diff_stats(pred_boxes, gt_boxes, tracks_gt, matching_dist):
   '''
   For each sample token, find matches of pred_boxes and gt_boxes, then get stats.
@@ -191,28 +262,40 @@ def matching_and_get_diff_stats(pred_boxes, gt_boxes, tracks_gt, matching_dist):
 
         #
         # dets = dets[:, reorder]
-        # gts = gts[:, reorder]
-
+        # gts = gts[:, reorder
         if matching_dist == '3d_iou':
           dets_8corner = [corners(det_tmp) for det_tmp in dets]
           gts_8corner = [corners(gt_tmp) for gt_tmp in gts]
           iou_matrix = np.zeros((len(dets_8corner),len(gts_8corner)),dtype=np.float32)
           for d, det in enumerate(dets_8corner):
             for g, gt in enumerate(gts_8corner):
-              iou_matrix[d,g] = bbox3d_iou3d(det, gt)[0]
+              iou_matrix[d,g] = bbox_iou2d(gt, det, True)
           distance_matrix = -iou_matrix
-          threshold = -0.5
+          threshold = -0.1
         elif matching_dist == '2d_center':
           distance_matrix = np.zeros((dets.shape[0], gts.shape[0]),dtype=np.float32)
           for d in range(dets.shape[0]):
             for g in range(gts.shape[0]):
               distance_matrix[d][g] = np.sqrt((dets[d][0] - gts[g][0])**2 + (dets[d][1] - gts[g][1])**2) 
           threshold = 2
+        elif matching_dist =='both':
+          dets_8corner = [corners(det_tmp) for det_tmp in dets]
+          gts_8corner = [corners(gt_tmp) for gt_tmp in gts]
+          threshold = 2
+          distance_matrix = np.zeros((dets.shape[0], gts.shape[0]),dtype=np.float32)
+          for d, det in enumerate(dets_8corner):
+            for g, gt in enumerate(gts_8corner):
+              iou_2d = bbox_iou2d(gt, det, True)
+              if iou_2d > 0.1:
+                distance_matrix[d, g] = np.sqrt((dets[d][0] - gts[g][0])**2 + (dets[d][1] - gts[g][1])**2)
+              else:
+                distance_matrix[d, g] = threshold + 1.0
         else:
           assert(False) 
 
         # GREEDY?
-        matched_indices = linear_assignment(distance_matrix)
+        # matched_indices = linear_assignment(distance_matrix)
+        matched_indices = greedy_match(distance_matrix, threshold)
 
         # dets = dets[:, reorder_back]
         # gts = gts[:, reorder_back]
@@ -275,7 +358,7 @@ if __name__ == '__main__':
                            'If no path given, the NIPS 2019 configuration will be used.')
   parser.add_argument('--verbose', type=int, default=1,
                       help='Whether to print to stdout.')
-  parser.add_argument('--matching_dist', type=str, default='2d_center',
+  parser.add_argument('--matching_dist', type=str, default='both',
                       help='Which distance function for matching, 3d_iou or 2d_center.')
   args = parser.parse_args()
 
@@ -365,7 +448,7 @@ if __name__ == '__main__':
       continue
     m_R[tracking_name] = [var[tracking_name][0], var[tracking_name][1], var[tracking_name][3]]
     m_head_P[tracking_name] = [var[tracking_name][0], var[tracking_name][1], var[tracking_name][3], var_vel[tracking_name][7], var_vel[tracking_name][3]]
-    m_no_head_P[tracking_name] = [var[tracking_name][0], var[tracking_name][1], var[tracking_name][3], var_vel[tracking_name][1], var_vel[tracking_name][2], var_vel[tracking_name][3]]
+    m_no_head_P[tracking_name] = [var[tracking_name][0], var[tracking_name][1], var[tracking_name][3], var_vel[tracking_name][0], var_vel[tracking_name][1], var_vel[tracking_name][3]]
     a_P[tracking_name] = [var[tracking_name][2], var[tracking_name][4], var[tracking_name][5], var[tracking_name][6], var_vel[tracking_name][2]]
     a_R[tracking_name] = [var[tracking_name][2], var[tracking_name][4], var[tracking_name][5], var[tracking_name][6]]
 

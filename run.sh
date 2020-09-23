@@ -1,1 +1,0 @@
-python main.py mini_val 2 mahal 11 greedy true nuscenes results/0003/test;
