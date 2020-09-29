@@ -32,7 +32,7 @@ class SAMAC3DMOT(object):
         mdist = MahalanobisDistThres()
         self.mdist_thres = mdist.mdist_threshold
 
-    def update(self, dets_all=None):#, ego_position, ego_orientation): #pose_translation=None, pose_rotation=None, cs_translation=None, cs_rotation=None):
+    def update(self, dets_all=None, ego_gpos=None, ego_gyaw=None):#, ego_position, ego_orientation): #pose_translation=None, pose_rotation=None, cs_translation=None, cs_rotation=None):
         """
         Params:
           dets_all: dict
@@ -106,7 +106,8 @@ class SAMAC3DMOT(object):
                                                                                a_state_on=self.tracker_generator.a_state_on,
                                                                                da_state_on=self.tracker_generator.da_state_on,
                                                                                m_yaw_pos=self.tracker_generator.m_yaw_pos, a_yaw_pos=self.tracker_generator.a_yaw_pos,
-                                                                               mdist_thres=self.mdist_thres)
+                                                                               mdist_thres=self.mdist_thres,
+                                                                               ego_gpos=ego_gpos, ego_gyaw=ego_gyaw)
             # elif match_distance == 'mahal':
             #     comp_dets = dets[:, self.tracker_generator.state_on]
             #     comp_trks = trks[:, self.tracker_generator.state_on]

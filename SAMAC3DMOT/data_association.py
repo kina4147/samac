@@ -34,7 +34,7 @@ def greedy_match(distance_matrix, max_dist = 1000000):
 def estimate_likelihood(pred_z, z, S):
     np.exp(x-z)
 
-def samac_associate(m_dets=None, m_trks=None, m_trks_S=None, a_dets=None, a_trks=None, a_trks_S=None, trackers=None, m_state_on=None, a_state_on=None, da_state_on=None, m_yaw_pos=2, a_yaw_pos=-1, mdist_thres=None):
+def samac_associate(m_dets=None, m_trks=None, m_trks_S=None, a_dets=None, a_trks=None, a_trks_S=None, trackers=None, m_state_on=None, a_state_on=None, da_state_on=None, m_yaw_pos=2, a_yaw_pos=-1, mdist_thres=None, ego_gpos=None, ego_gyaw=None):
     reverse_matrix = np.zeros((len(m_dets), len(m_trks)), dtype=np.bool)
     m_likelihood = np.full((len(m_dets), len(m_trks)), 1.0, dtype=np.float32)
     a_likelihood = np.full((len(m_dets), len(m_trks)), 1.0, dtype=np.float32)
@@ -42,7 +42,7 @@ def samac_associate(m_dets=None, m_trks=None, m_trks_S=None, a_dets=None, a_trks
     a_prior = np.zeros((len(m_trks)), dtype=np.float32)
     max_dist = 50.0
     min_dist = 0.0
-
+    # print(ego_gpos, ego_gyaw)
     a_da_state_on = da_state_on[a_state_on].copy()
     a_dets = a_dets[:, a_da_state_on, :]
     a_trks = a_trks[:, a_da_state_on, :]
@@ -57,12 +57,17 @@ def samac_associate(m_dets=None, m_trks=None, m_trks_S=None, a_dets=None, a_trks
         m_S_inv = np.linalg.inv(m_trks_S[t])
         a_S_inv = np.linalg.inv(a_da_trks_S[t])
         d_count = 0
+        # np.arctan2(m_trk[0] - ego_gpos[0], m_trk[1] - ego_gpos[1])
+        obs_angle = (m_trks[t, m_yaw_pos] - ego_gyaw) + np.arctan2(m_trk[1] - ego_gpos[1], m_trk[0] - ego_gpos[0])
+        # print(trackers[t].info.id, (m_trks[t, m_yaw_pos] - ego_gyaw),  np.arctan2(m_trk[1] - ego_gpos[1], m_trk[0] - ego_gpos[0]), obs_angle)
+        # print(m_trk[0], ego_gpos[0], m_trk[1], ego_gpos[1])
+        # a_trks[t, :]
         for d, m_det in enumerate(m_dets):
             m_diff = (m_det - m_trk).reshape((-1, 1))
             # manual reversed angle by 180 when diff > 90 or < -90 degree
             if -1 < m_yaw_pos < len(m_diff):
                 m_diff[m_yaw_pos] = angle_in_range(m_diff[m_yaw_pos])
-                if abs(m_diff[m_yaw_pos]) > np.pi / 2.0: # 180 deg diff
+                if abs(m_diff[m_yaw_pos]) > np.pi - 0.34: # 180 deg diff
                     m_diff[m_yaw_pos] += np.pi
                     m_diff[m_yaw_pos] = angle_in_range(m_diff[m_yaw_pos])
                     reverse_matrix[d, t] = True
@@ -87,10 +92,15 @@ def samac_associate(m_dets=None, m_trks=None, m_trks_S=None, a_dets=None, a_trks
                 # a_likelihood = -smn.pdf(det[3:7][a_state_on], trk[3:7][a_state_on], a_trk_S) # -np.exp(logpdf(det[3:7][a_state_on], trk[3:7][a_state_on], a_trk_S)) # -smn(trk[3:7][a_state_on], a_trk_S).pdf(det[3:7][a_state_on]))
                 # a_flike = fmn(det[3:7][a_state_on], trk[3:7][a_state_on], a_trk_S)
         if d_count > 0:
-            close_score = 1.0 # (max_dist - min((max_dist - min_dist), max(trackers[t].info.dist - min_dist, 0.0))) / max_dist
-            crowd_score = 0.5 * (1.0 + min(3.0, d_count - 1)/3.0)
-            rigid_score = 0.5 * (1.0 + len(a_diff)/5.0)
-            a_prior[t] = 1.0 # 0.5 * close_score * crowd_score * rigid_score
+            max_crowd = 5
+            max_observe = 4
+            crowd_score = 0.5 + 0.5 * np.log(min(max_crowd, d_count)) / np.log(max_crowd)
+            observe_score = 0.5 + 0.5 * np.log(min(max_observe, len(a_diff))) / np.log(max_observe)
+            # viz_score = m_trk[m_yaw_pos] + ego_gyaw
+            # close_score = 1.0 # (max_dist - min((max_dist - min_dist), max(trackers[t].info.dist - min_dist, 0.0))) / max_dist
+            # crowd_score = 0.5 * (1.0 + min(3.0, d_count - 1)/3.0)
+            # rigid_score = 0.5 * (1.0 + len(a_diff)/5.0)
+            a_prior[t] = 1.0 # crowd_score * observe_score # 1.0 # 0.5 * close_score * crowd_score * rigid_score
             m_prior[t] = 1.0 # - a_prior[t]
             a_prior[t] = a_prior[t] * trackers[t].info.a_likelihood
             m_prior[t] = m_prior[t] * trackers[t].info.m_likelihood

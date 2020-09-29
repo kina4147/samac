@@ -17,6 +17,7 @@ from pyquaternion import Quaternion
 # from nuscenes.eval.common.utils import quaternion_yaw
 # from SAMAC3DMOT.utils import rotz, angle_in_range, bbox_iou2d, bbox_iou3d, bbox_adjacency_2d
 
+from matplotlib import pyplot as plt
 
 import os.path, copy, numpy as np, time, sys
 from pykitti.utils import load_oxts_packets_and_poses
@@ -30,323 +31,6 @@ KITTI_CLASS_NAMES = [
   'Cyclist'
 ]
 
-# def corners(bbox3d):
-#     """
-#     Draw 3d bounding box in image
-#         qs: (8,3) array of vertices for the 3d box in following order:
-#             5 -------- 4
-#            /|         /|
-#           6 -------- 7 .
-#           | |        | |
-#           . 1 -------- 0
-#           |/         |/       z|__y
-#           2 -------- 3         /x
-#
-#     Returns the bounding box corners.
-#
-#     :param wlh_factor: Multiply w, l, h by a factor to scale the box.
-#     :return: <np.float: 3, 8>. First four corners are the ones facing forward.
-#         The last four are the ones facing backwards.
-#     """
-#     # w, l, h =  * wlh_factor
-#     w = bbox3d[4]
-#     l = bbox3d[5]
-#     h = bbox3d[6]
-#
-#     R = rotz(bbox3d[3])
-#     # 3D bounding box corners. (Convention: x points forward, y to the left, z up.)
-#     # x_corners = l / 2 * np.array([1, 1, 1, 1, -1, -1, -1, -1])
-#     # y_corners = w / 2 * np.array([1, -1, -1, 1, 1, -1, -1, 1])
-#     # z_corners = h / 2 * np.array([1, 1, -1, -1, 1, 1, -1, -1])
-#     x_corners = l / 2 * np.array([-1, -1, 1, 1, -1, -1, 1, 1])
-#     y_corners = w / 2 * np.array([1, -1, -1, 1, 1, -1, -1, 1])
-#     z_corners = h / 2 * np.array([-1, -1, -1, -1, 1, 1, 1, 1])
-#     corners = np.vstack((x_corners, y_corners, z_corners))
-#
-#     # Rotate
-#     corners = np.dot(R, corners)
-#
-#     # Translate
-#     corners[0, :] = corners[0, :] + bbox3d[0]
-#     corners[1, :] = corners[1, :] + bbox3d[1]
-#     corners[2, :] = corners[2, :] + bbox3d[2]
-#
-#     return corners
-# def rotation_to_positive_z_angle(rotation):
-#   q = Quaternion(rotation)
-#   angle = q.angle if q.axis[2] > 0 else -q.angle
-#   return angle
-#
-# def get_mean(tracks):
-#   '''
-#   Input:
-#     tracks: {scene_token:  {t: [TrackingBox]}}
-#   '''
-#   print('len(tracks.keys()): ', len(tracks.keys()))
-#   yaw_pos = 3
-#   # x, y, yaw, z, w, l, h, x', y', yaw', z', w', l', h'
-#   gt_trajectory_map = {tracking_name: {scene_token: {} for scene_token in tracks.keys()} for tracking_name in NUSCENES_TRACKING_NAMES}
-#
-#   # store every detection data to compute mean and variance
-#   gt_box_data = {tracking_name: [] for tracking_name in NUSCENES_TRACKING_NAMES}
-#   # no_head_box_data = {tracking_name: [] for tracking_name in NUSCENES_TRACKING_NAMES} # = np.array([0, 0, 0, 0])  # x, y, x', y'
-#   # head_box_data = {tracking_name: [] for tracking_name in NUSCENES_TRACKING_NAMES} # = np.array([0, 0, 0, 0, 0])  # x, y', yaw, v, yaw'
-#   # appearance_box_data = {tracking_name: [] for tracking_name in NUSCENES_TRACKING_NAMES} # = np.array([0, 0, 0, 0, 0])  # , z, w, l, h, z'
-#
-#   for scene_token in tracks.keys():
-#     # print('scene_token: ', scene_token)
-#     # print('tracks[scene_token].keys(): ', tracks[scene_token].keys())
-#     for t_idx in range(len(tracks[scene_token].keys())):
-#       #print('t_idx: ', t_idx)
-#       t = sorted(tracks[scene_token].keys())[t_idx]
-#       # print(tracks[scene_token][t])
-#       for box_id, box in enumerate(tracks[scene_token][t]): # range(len(tracks[scene_token][t])):
-#         #print('box_id: ', box_id)
-#         # box = tracks[scene_token][t][box_id]
-#         #print('box: ', box)
-#
-#         if box.tracking_name not in NUSCENES_TRACKING_NAMES:
-#           continue
-#         # x, y, z, yaw, x', y', z', yaw', v, x", y", z", yaw", a
-#         yaw = quaternion_yaw(Quaternion(box.rotation))
-#         box_data = np.array([box.translation[0], box.translation[1], box.translation[2], yaw, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0])
-#         box_data[yaw_pos] = angle_in_range(box_data[yaw_pos])
-#         if box.tracking_id not in gt_trajectory_map[box.tracking_name][scene_token]:
-#           gt_trajectory_map[box.tracking_name][scene_token][box.tracking_id] = {t_idx: box_data}
-#         else:
-#           gt_trajectory_map[box.tracking_name][scene_token][box.tracking_id][t_idx] = box_data
-#
-#         # if we can find the same object in the previous frame, get the velocity
-#         if box.tracking_id in gt_trajectory_map[box.tracking_name][scene_token] and t_idx-1 in gt_trajectory_map[box.tracking_name][scene_token][box.tracking_id]:
-#           prev_box_data = gt_trajectory_map[box.tracking_name][scene_token][box.tracking_id][t_idx-1]
-#           dist = np.sqrt((box_data[0] - prev_box_data[0])**2 + (box_data[1] - prev_box_data[1])**2)
-#           residual_vel = box_data[:4] - prev_box_data[:4] # x, y, z, yaw
-#           # angle in range
-#           residual_vel[yaw_pos] = angle_in_range(residual_vel[yaw_pos])
-#           box_data[4:8] = residual_vel
-#           box_data[8] = dist
-#           gt_trajectory_map[box.tracking_name][scene_token][box.tracking_id][t_idx] = box_data
-#           # if we can find the same object in the previous two frames, get the acceleration
-#           if box.tracking_id in gt_trajectory_map[box.tracking_name][scene_token] and t_idx-2 in gt_trajectory_map[box.tracking_name][scene_token][box.tracking_id]:
-#             pprev_box_data = gt_trajectory_map[box.tracking_name][scene_token][box.tracking_id][t_idx - 2]
-#             pdist = np.sqrt((prev_box_data[0] - pprev_box_data[0])**2 + (prev_box_data[1] - pprev_box_data[1])**2)
-#             presidual_vel = prev_box_data[:4] - pprev_box_data[:4] # x, y, yaw
-#             presidual_vel[yaw_pos] = angle_in_range(presidual_vel[yaw_pos])
-#             residual_a = residual_vel - presidual_vel
-#             residual_a[yaw_pos] = angle_in_range(residual_a[yaw_pos])
-#             dist_a = dist - pdist
-#             box_data[9:13] = residual_a
-#             box_data[13] = dist_a
-#             gt_trajectory_map[box.tracking_name][scene_token][box.tracking_id][t_idx] = box_data
-#             gt_box_data[box.tracking_name].append(box_data)
-#             # # x, y, z, yaw, x', y', z', yaw', v, x", y", z", yaw", a
-#             # no_head_box_data[box.tracking_name].append(np.array([box_data[0], box_data[1], box_data[3], box_data[4], box_data[5], box_data[7]]))
-#             # head_box_data[box.tracking_name].append(np.array([box_data[0], box_data[1], box_data[3], box_data[8], box_data[7]]))
-#             # appearance_box_data[box.tracking_name].append(np.array([box_data[2], 0.0, 0.0, 0.0, box_data[6]]))
-#
-#   mean = {tracking_name: [] for tracking_name in NUSCENES_TRACKING_NAMES} # [x, y, z, yaw, w, l, h]
-#   std = {tracking_name: [] for tracking_name in NUSCENES_TRACKING_NAMES} # [x, y, z, yaw, w, l, h]
-#   var = {tracking_name: [] for tracking_name in NUSCENES_TRACKING_NAMES} # [x, y, z, yaw, w, l, h]
-#   for tracking_name in NUSCENES_TRACKING_NAMES:
-#     if len(gt_box_data[tracking_name]):
-#       gt_box_data[tracking_name] = np.stack(gt_box_data[tracking_name], axis=0)
-#       # no_head_box_data[tracking_name] = np.stack(gt_box_data[tracking_name], axis=0)
-#       # head_box_data[tracking_name] = np.stack(gt_box_data[tracking_name], axis=0)
-#       # appearance_box_data[tracking_name] = np.stack(gt_box_data[tracking_name], axis=0)
-#
-#       mean[tracking_name] = np.mean(gt_box_data[tracking_name], axis=0)
-#       std[tracking_name] = np.std(gt_box_data[tracking_name], axis=0)
-#       var[tracking_name] = np.var(gt_box_data[tracking_name], axis=0)
-#   #
-#   # # x, y, z, yaw, x', y', z', yaw', v, x", y", z", yaw", a
-#   # mean = {tracking_name: np.mean(gt_box_data[tracking_name], axis=0) for tracking_name in NUSCENES_TRACKING_NAMES}
-#   # std = {tracking_name: np.std(gt_box_data[tracking_name], axis=0) for tracking_name in NUSCENES_TRACKING_NAMES}
-#   # var = {tracking_name: np.var(gt_box_data[tracking_name], axis=0) for tracking_name in NUSCENES_TRACKING_NAMES}
-#
-#
-#   # no_head_mean = {tracking_name: np.mean(no_head_box_data[tracking_name], axis=0).tolist() for tracking_name in NUSCENES_TRACKING_NAMES}
-#   # no_head_std = {tracking_name: np.std(no_head_box_data[tracking_name], axis=0).tolist() for tracking_name in NUSCENES_TRACKING_NAMES}
-#   # no_head_var = {tracking_name: np.var(no_head_box_data[tracking_name], axis=0).tolist() for tracking_name in NUSCENES_TRACKING_NAMES}
-#   #
-#   #
-#   # head_mean = {tracking_name: np.mean(head_box_data[tracking_name], axis=0).tolist() for tracking_name in NUSCENES_TRACKING_NAMES}
-#   # head_std = {tracking_name: np.std(head_box_data[tracking_name], axis=0).tolist() for tracking_name in NUSCENES_TRACKING_NAMES}
-#   # head_var = {tracking_name: np.var(head_box_data[tracking_name], axis=0).tolist() for tracking_name in NUSCENES_TRACKING_NAMES}
-#   #
-#   #
-#   # appearance_mean = {tracking_name: np.mean(appearance_box_data[tracking_name], axis=0).tolist() for tracking_name in NUSCENES_TRACKING_NAMES}
-#   # appearance_std = {tracking_name: np.std(appearance_box_data[tracking_name], axis=0).tolist() for tracking_name in NUSCENES_TRACKING_NAMES}
-#   # appearance_var = {tracking_name: np.var(appearance_box_data[tracking_name], axis=0).tolist() for tracking_name in NUSCENES_TRACKING_NAMES}
-#   return mean, std, var #, head_std, head_var, appearance_mean, appearance_std, appearance_var
-#
-#
-# def greedy_match(distance_matrix, max_dist = 1000000):
-#     '''
-#     Find the one-to-one matching using greedy allgorithm choosing small distance
-#     distance_matrix: (num_detections, num_tracks)
-#     '''
-#     matched_indices = []
-#
-#     num_detections, num_tracks = distance_matrix.shape
-#     distance_1d = distance_matrix.reshape(-1)
-#     index_1d = np.argsort(distance_1d)
-#     index_2d = np.stack([index_1d // num_tracks, index_1d % num_tracks], axis=1)
-#     detection_id_matches_to_tracking_id = [-1] * num_detections
-#     tracking_id_matches_to_detection_id = [-1] * num_tracks
-#
-#
-#     for sort_i in range(index_2d.shape[0]):
-#         detection_id = int(index_2d[sort_i][0])
-#         tracking_id = int(index_2d[sort_i][1])
-#         if tracking_id_matches_to_detection_id[tracking_id] == -1 and detection_id_matches_to_tracking_id[
-#             detection_id] == -1:
-#             tracking_id_matches_to_detection_id[tracking_id] = detection_id
-#             detection_id_matches_to_tracking_id[detection_id] = tracking_id
-#             if distance_matrix[detection_id, tracking_id] > max_dist:
-#                 break
-#             matched_indices.append([detection_id, tracking_id])
-#
-#     matched_indices = np.array(matched_indices)
-#     return matched_indices
-#
-# def matching_and_get_diff_stats(pred_boxes, gt_boxes, tracks_gt, matching_dist):
-#   '''
-#   For each sample token, find matches of pred_boxes and gt_boxes, then get stats.
-#   tracks_gt has the temporal order info for each sample_token
-#   '''
-#   yaw_pos = 3
-#   diff = {tracking_name: [] for tracking_name in NUSCENES_TRACKING_NAMES} # [x, y, z, yaw, w, l, h]
-#   diff_vel = {tracking_name: [] for tracking_name in NUSCENES_TRACKING_NAMES} # [x', y', z', yaw']
-#
-#   # # similar to main.py class AB3DMOT update()
-#   # reorder = [3, 4, 5, 6, 2, 1, 0]
-#   # reorder_back = [6, 5, 4, 0, 1, 2, 3]
-#
-#   for scene_token in tracks_gt.keys():
-#     #print('scene_token: ', scene_token)
-#     #print('tracks[scene_token].keys(): ', tracks[scene_token].keys())
-#     # {tracking_name: t_idx: tracking_id: det(7) }
-#     match_diff_t_map = {tracking_name: {} for tracking_name in NUSCENES_TRACKING_NAMES}
-#     match_gt_t_map = {tracking_name: {} for tracking_name in NUSCENES_TRACKING_NAMES}
-#     match_det_t_map = {tracking_name: {} for tracking_name in NUSCENES_TRACKING_NAMES}
-#     for t_idx in range(len(tracks_gt[scene_token].keys())):
-#       #print('t_idx: ', t_idx)
-#       t = sorted(tracks_gt[scene_token].keys())[t_idx]
-#       #print(len(tracks_gt[scene_token][t]))
-#       if len(tracks_gt[scene_token][t]) == 0:
-#         continue
-#       ref_box = tracks_gt[scene_token][t][0]
-#       sample_token = ref_box.sample_token
-#
-#       for tracking_name in NUSCENES_TRACKING_NAMES:
-#         #print('t: ', t)
-#         gt_all = [box for box in gt_boxes.boxes[sample_token] if box.tracking_name == tracking_name]
-#         if len(gt_all) == 0:
-#           continue
-#
-#         gts = np.stack([np.array([box.translation[0], box.translation[1], box.translation[2], angle_in_range(quaternion_yaw(Quaternion(box.rotation))), box.size[0], box.size[1], box.size[2]]) for box in gt_all], axis=0)
-#
-#
-#         gts_ids = [box.tracking_id for box in gt_all]
-#         # gts = np.stack([np.array([
-#         #   box.size[2], box.size[0], box.size[1],
-#         #   box.translation[0], box.translation[1], box.translation[2],
-#         #   rotation_to_positive_z_angle(box.rotation)
-#         #   ]) for box in gt_all], axis=0)
-#         # gts_ids = [box.tracking_id for box in gt_all]
-#
-#         det_all = [box for box in pred_boxes.boxes[sample_token] if box.detection_name == tracking_name]
-#         if len(det_all) == 0:
-#           continue
-#
-#         dets = np.stack([np.array([box.translation[0], box.translation[1], box.translation[2], angle_in_range(quaternion_yaw(Quaternion(box.rotation))), box.size[0], box.size[1], box.size[2]]) for box in det_all], axis=0)
-#
-#         #
-#         # dets = dets[:, reorder]
-#         # gts = gts[:, reorder
-#         if matching_dist == '3d_iou':
-#           dets_8corner = [corners(det_tmp) for det_tmp in dets]
-#           gts_8corner = [corners(gt_tmp) for gt_tmp in gts]
-#           iou_matrix = np.zeros((len(dets_8corner),len(gts_8corner)),dtype=np.float32)
-#           for d, det in enumerate(dets_8corner):
-#             for g, gt in enumerate(gts_8corner):
-#               iou_matrix[d,g] = bbox_iou2d(gt, det, True)
-#           distance_matrix = -iou_matrix
-#           threshold = -0.1
-#         elif matching_dist == '2d_center':
-#           distance_matrix = np.zeros((dets.shape[0], gts.shape[0]),dtype=np.float32)
-#           for d in range(dets.shape[0]):
-#             for g in range(gts.shape[0]):
-#               distance_matrix[d][g] = np.sqrt((dets[d][0] - gts[g][0])**2 + (dets[d][1] - gts[g][1])**2)
-#           threshold = 2
-#         elif matching_dist =='both':
-#           dets_8corner = [corners(det_tmp) for det_tmp in dets]
-#           gts_8corner = [corners(gt_tmp) for gt_tmp in gts]
-#           threshold = 2
-#           distance_matrix = np.zeros((dets.shape[0], gts.shape[0]),dtype=np.float32)
-#           for d, det in enumerate(dets_8corner):
-#             for g, gt in enumerate(gts_8corner):
-#               iou_2d = bbox_iou2d(gt, det, True)
-#               if iou_2d > 0.1:
-#                 distance_matrix[d, g] = np.sqrt((dets[d][0] - gts[g][0])**2 + (dets[d][1] - gts[g][1])**2)
-#               else:
-#                 distance_matrix[d, g] = threshold + 1.0
-#         else:
-#           assert(False)
-#
-#         # GREEDY?
-#         # matched_indices = linear_assignment(distance_matrix)
-#         matched_indices = greedy_match(distance_matrix, threshold)
-#
-#         # dets = dets[:, reorder_back]
-#         # gts = gts[:, reorder_back]
-#         for pair_id in range(matched_indices.shape[0]):
-#           if distance_matrix[matched_indices[pair_id][0]][matched_indices[pair_id][1]] < threshold:
-#             diff_value = dets[matched_indices[pair_id][0]] - gts[matched_indices[pair_id][1]]
-#             diff_value[yaw_pos] = angle_in_range(diff_value[yaw_pos])
-#             # x, y, z, yaw, w, l, h
-#             diff[tracking_name].append(diff_value)
-#
-#             gt_track_id = gts_ids[matched_indices[pair_id][1]]
-#             if t_idx not in match_diff_t_map[tracking_name]:
-#               match_diff_t_map[tracking_name][t_idx] = {gt_track_id: diff_value}
-#               match_gt_t_map[tracking_name][t_idx] = {gt_track_id: gts[matched_indices[pair_id][1]][:2]}
-#               match_det_t_map[tracking_name][t_idx] = {gt_track_id: dets[matched_indices[pair_id][0]][:2]}
-#             else:
-#               match_diff_t_map[tracking_name][t_idx][gt_track_id] = diff_value
-#               match_gt_t_map[tracking_name][t_idx][gt_track_id] = gts[matched_indices[pair_id][1]][:2]
-#               match_det_t_map[tracking_name][t_idx][gt_track_id] = dets[matched_indices[pair_id][0]][:2]
-#             # check if we have previous time_step's matching pair for current gt object
-#             if t_idx > 0 and t_idx-1 in match_diff_t_map[tracking_name] and gt_track_id in match_diff_t_map[tracking_name][t_idx-1]:
-#               det_dist = np.sqrt((dets[matched_indices[pair_id][0]][0] - match_det_t_map[tracking_name][t_idx-1][gt_track_id][0])**2 + (dets[matched_indices[pair_id][0]][1] - match_det_t_map[tracking_name][t_idx-1][gt_track_id][1])**2)
-#               gt_dist = np.sqrt((gts[matched_indices[pair_id][1]][0] - match_gt_t_map[tracking_name][t_idx-1][gt_track_id][0])**2 + (gts[matched_indices[pair_id][1]][1] - match_gt_t_map[tracking_name][t_idx-1][gt_track_id][1])**2)
-#               diff_dist = det_dist - gt_dist
-#               diff_vel_value = diff_value - match_diff_t_map[tracking_name][t_idx-1][gt_track_id]
-#               diff_vel_value[yaw_pos] = angle_in_range(diff_vel_value[yaw_pos])
-#               diff_vel_value = np.concatenate((diff_vel_value, np.array([diff_dist])))
-#
-#               diff_vel[tracking_name].append(diff_vel_value)
-#
-#
-#   mean = {tracking_name: [] for tracking_name in NUSCENES_TRACKING_NAMES} # [x, y, z, yaw, w, l, h]
-#   std = {tracking_name: [] for tracking_name in NUSCENES_TRACKING_NAMES} # [x, y, z, yaw, w, l, h]
-#   var = {tracking_name: [] for tracking_name in NUSCENES_TRACKING_NAMES} # [x, y, z, yaw, w, l, h]
-#   mean_vel = {tracking_name: [] for tracking_name in NUSCENES_TRACKING_NAMES} # [x', y', z', yaw', w', l', h', v]
-#   std_vel = {tracking_name: [] for tracking_name in NUSCENES_TRACKING_NAMES} # [x', y', z', yaw', w', l', h', v]
-#   var_vel = {tracking_name: [] for tracking_name in NUSCENES_TRACKING_NAMES} # [x', y', z', yaw', w', l', h', v]
-#   for tracking_name in NUSCENES_TRACKING_NAMES:
-#     if len(diff[tracking_name]):
-#       diff[tracking_name] = np.stack(diff[tracking_name], axis=0)
-#       mean[tracking_name] = np.mean(diff[tracking_name], axis=0)
-#       std[tracking_name] = np.std(diff[tracking_name], axis=0)
-#       var[tracking_name] = np.var(diff[tracking_name], axis=0)
-#     if len(diff_vel[tracking_name]):
-#       diff_vel[tracking_name] = np.stack(diff_vel[tracking_name], axis=0)
-#       mean_vel[tracking_name] = np.mean(diff_vel[tracking_name], axis=0)
-#       std_vel[tracking_name] = np.std(diff_vel[tracking_name], axis=0)
-#       var_vel[tracking_name] = np.var(diff_vel[tracking_name], axis=0)
-#
-#   return mean, std, var, mean_vel, std_vel, var_vel
 def read_calib_file(filepath):
   ''' Read in a calibration file and parse into a dictionary.
   Ref: https://github.com/utiasSTARS/pykitti/blob/master/pykitti/utils.py
@@ -424,8 +108,8 @@ if __name__ == '__main__':
   d_path            = os.path.join("./data//KITTI", d_sha)
 
   gt_path = './evaluation'
-  filename_test_mapping = os.path.join(gt_path, 'evaluate_tracking.seqmap.val')
-  # filename_test_mapping = os.path.join(gt_path, 'evaluate_tracking.seqmap.train')
+  # filename_test_mapping = os.path.join(gt_path, 'evaluate_tracking.seqmap.val')
+  filename_test_mapping = os.path.join(gt_path, 'evaluate_tracking.seqmap.train')
   # data and parameter
   gt_path = os.path.join(gt_path, "label")
 
@@ -443,19 +127,18 @@ if __name__ == '__main__':
   v_state = {class_name: [] for class_name in KITTI_CLASS_NAMES}
   a_state = {class_name: [] for class_name in KITTI_CLASS_NAMES}
 
-  diff = {tracking_name: [] for tracking_name in KITTI_CLASS_NAMES} # [x, y, z, yaw, w, l, h]
-  diff_vel = {tracking_name: [] for tracking_name in KITTI_CLASS_NAMES} # [x', y', z', yaw']
+  diff = {class_name: [] for class_name in KITTI_CLASS_NAMES} # [x, y, z, yaw, w, l, h]
+  ego_dist = {class_name: [] for class_name in KITTI_CLASS_NAMES} # [x, y, z, yaw, w, l, h]
+  ego_angle = {class_name: [] for class_name in KITTI_CLASS_NAMES} # [x, y, z, yaw, w, l, h]
+  gt_crowd = {class_name: [] for class_name in KITTI_CLASS_NAMES} # [x, y, z, yaw, w, l, h]
+  det_angle = {class_name: [] for class_name in KITTI_CLASS_NAMES} # [x, y, z, yaw, w, l, h]
+  diff_vel = {class_name: [] for class_name in KITTI_CLASS_NAMES} # [x', y', z', yaw']
   for seq, s_name in enumerate(sequence_name):
     gt_filename = os.path.join(gt_path, "%s.txt" % s_name)
     gt_f = open(gt_filename, "r")
-
-    # gt_data         = [[] for x in range(n_frames[seq])] # current set has only 1059 entries, sufficient length is checked anyway
-
     d_filename = os.path.join(d_path, "%s.txt" % s_name)
     d_f = open(d_filename, "r")
     d_data         = [[] for x in range(n_frames[seq])] # current set has only 1059 entries, sufficient length is checked anyway
-
-
     det_id2str = {1: 'Pedestrian', 2: 'Car', 3: 'Cyclist'}
     # det_id2str = {1: 'Pedestrian', 2: 'Car', 3: 'Cyclist'}
     oxts_file = os.path.join('./data/KITTI/resources/training/oxts', s_name + '.txt')
@@ -477,6 +160,7 @@ if __name__ == '__main__':
       obj_type = fields[2]#.lower()  # object type [car, pedestrian, cyclist, ...]
       truncation = int(float(fields[3]))  # truncation [-1,0,1,2]
       occlusion = int(float(fields[4]))  # occlusion  [-1,0,1,2]
+      obs_angle = float(fields[5])          # observation angle [rad]
       h = float(fields[10])  # height [m]
       w = float(fields[11])  # width  [m]
       l = float(fields[12])  # length [m]
@@ -501,9 +185,8 @@ if __name__ == '__main__':
       glo_pose = np.dot(cam_to_world[0:3, 0:3], loc_pose.T) + cam_to_world[0:3, 3].reshape(-1, 1)
       gpos = np.transpose(glo_pose[:, 0])
       gyaw = rpy[2]
-      gt_data[obj_type].append([int(track_id), int(frame), gpos[0], gpos[1], gpos[2], gyaw, w, l, h])
-
-      # print(yaw, gyaw)
+      tyaw = angle_in_range(yaw + np.arctan2(-pos_x, pos_z))
+      gt_data[obj_type].append([int(track_id), int(frame), gpos[0], gpos[1], gpos[2], gyaw, w, l, h, np.sqrt(pos_x * pos_x + pos_z + pos_z), tyaw])
     gt_f.close()
     seq_gt_data.append(gt_data)
 
@@ -525,13 +208,9 @@ if __name__ == '__main__':
         glo_pose = np.dot(cam_to_world[0:3, 0:3], loc_pose.T) + cam_to_world[0:3, 3].reshape(-1, 1)
         gpos = np.transpose(glo_pose[:, 0])
         gyaw = rpy[2]
-        det_data[class_name].append([-1, int(det[0]), gpos[0], gpos[1], gpos[2], gyaw, det[8], det[9], det[7]])
-
-        # print(det[13], gyaw)
+        tyaw = angle_in_range(det[13] + np.arctan2(-det[10], det[12]))
+        det_data[class_name].append([-1, int(det[0]), gpos[0], gpos[1], gpos[2], gyaw, det[8], det[9], det[7], np.sqrt(det[10] * det[10] + det[12] + det[12]), tyaw])
     seq_det_data.append(det_data)
-
-  # Seq
-
 
 
   # Load All Dataset from Detection and GroundTruth
@@ -548,6 +227,7 @@ if __name__ == '__main__':
             t0_state = np.array(sgts[idx][2:9])
             t1_state = np.array(sgts[idx+1][2:9])
             diff1 = t1_state - t0_state
+            diff1[3] = angle_in_range(diff1[3])
             dist1 = np.sqrt((diff1[0])**2 + (diff1[1])**2)
             v_state[class_name].append(np.concatenate((diff1, np.array([dist1]))))
             next_next_frame = next_frame + 1
@@ -573,35 +253,52 @@ if __name__ == '__main__':
       for frame in range(n_frames[seq]):
         dets = np_det[np_det[:, 1] == frame, :]
         gts = np_gt[np_gt[:, 1] == frame, :]
+        if len(dets) == 0 or len(gts) == 0:
+          continue
         distance_matrix = np.zeros((dets.shape[0], gts.shape[0]), dtype=np.float32)
         for d in range(dets.shape[0]):
           for g in range(gts.shape[0]):
             distance_matrix[d, g] = np.sqrt((dets[d, 2] - gts[g, 2])**2 + (dets[d, 3] - gts[g, 3])**2)
         if class_name == "Car":
-          threshold = 1.0
+          threshold = 2.0
         elif class_name == "Cyclist":
           threshold = 0.5
         elif class_name == "Pedestrian":
           threshold = 0.5
         yaw_pos = 3
+        distance_matrix[distance_matrix > threshold] = 0.0
+        crowd = np.count_nonzero(distance_matrix, axis=0)
+
         matched_indices = greedy_match(distance_matrix, threshold)
 
         for pair_id in range(matched_indices.shape[0]):
           if distance_matrix[matched_indices[pair_id][0]][matched_indices[pair_id][1]] < threshold:
-            diff_value = dets[matched_indices[pair_id][0], 2:] - gts[matched_indices[pair_id][1], 2:]
+            dist = gts[matched_indices[pair_id][1], 9]
+            angle = gts[matched_indices[pair_id][1], 10]
+            dangle = dets[matched_indices[pair_id][0], 10]
+            gcrowd = crowd[matched_indices[pair_id][1]]
+            diff_value = dets[matched_indices[pair_id][0], 2:9] - gts[matched_indices[pair_id][1], 2:9]
             diff_value[yaw_pos] = angle_in_range(diff_value[yaw_pos])
+            if abs(diff_value[yaw_pos]) > np.pi - 0.34: # reverse
+              if diff_value[yaw_pos] > 0:
+                diff_value[yaw_pos] = diff_value[yaw_pos] - np.pi
+              elif diff_value[yaw_pos] < 0:
+                diff_value[yaw_pos] = diff_value[yaw_pos] + np.pi
             # x, y, z, yaw, w, l, h
             diff[class_name].append(diff_value)
-
+            ego_dist[class_name].append(dist)
+            ego_angle[class_name].append(angle)
+            det_angle[class_name].append(dangle)
+            gt_crowd[class_name].append(gcrowd)
             gt_track_id = gts[matched_indices[pair_id][1], 0]
             if frame not in match_diff_t_map[class_name]:
               match_diff_t_map[class_name][frame] = {gt_track_id: diff_value}
-              match_gt_t_map[class_name][frame] = {gt_track_id: gts[matched_indices[pair_id][1], 2:]}
-              match_det_t_map[class_name][frame] = {gt_track_id: dets[matched_indices[pair_id][0], 2:]}
+              match_gt_t_map[class_name][frame] = {gt_track_id: gts[matched_indices[pair_id][1], 2:9]}
+              match_det_t_map[class_name][frame] = {gt_track_id: dets[matched_indices[pair_id][0], 2:9]}
             else:
               match_diff_t_map[class_name][frame][gt_track_id] = diff_value
-              match_gt_t_map[class_name][frame][gt_track_id] = gts[matched_indices[pair_id][1], 2:]
-              match_det_t_map[class_name][frame][gt_track_id] = dets[matched_indices[pair_id][0], 2:]
+              match_gt_t_map[class_name][frame][gt_track_id] = gts[matched_indices[pair_id][1], 2:9]
+              match_det_t_map[class_name][frame][gt_track_id] = dets[matched_indices[pair_id][0], 2:9]
 
             # check if we have previous time_step's matching pair for current gt object
             if frame > 0 and frame-1 in match_diff_t_map[class_name] and gt_track_id in match_diff_t_map[class_name][frame-1]:
@@ -613,6 +310,25 @@ if __name__ == '__main__':
               diff_vel_value = np.concatenate((diff_vel_value, np.array([diff_dist])))
 
               diff_vel[class_name].append(diff_vel_value)
+
+
+
+  for class_name in KITTI_CLASS_NAMES:
+    tmp_diff = np.stack(diff[class_name])
+    tmp_dist = np.stack(ego_dist[class_name])
+    tmp_angle = np.stack(ego_angle[class_name])
+    tmp_crowd = np.stack(gt_crowd[class_name])
+
+    mid_dist_ids = (2 < tmp_dist) & (tmp_dist < 30)
+    # plt.scatter(abs(tmp_angle[mid_dist_ids]), abs(tmp_diff[mid_dist_ids, 3]), s=5)
+    # plt.scatter(abs(tmp_crowd), abs(tmp_diff[:, 3]), s=5)
+    # plt.scatter(tmp_angle[mid_dist_ids], abs(tmp_diff[mid_dist_ids, 5]), s=5)
+    # plt.scatter(tmp_angle[mid_dist_ids], abs(tmp_diff[mid_dist_ids, 4]), s=5)
+    plt.scatter(tmp_angle[mid_dist_ids], abs(tmp_diff[mid_dist_ids, 3]), s=5)
+    # plt.scatter(abs(tmp_diff[:, 1]), abs(tmp_diff[:, 5]))
+    # plt.scatter(abs(tmp_dist[mid_dist_ids]), abs(tmp_diff[mid_dist_ids, 6]), s=5)
+    plt.show()
+
 
 
   R_mean = {class_name: [] for class_name in KITTI_CLASS_NAMES} # [x, y, z, yaw, w, l, h]
@@ -654,47 +370,17 @@ if __name__ == '__main__':
     Q_std[class_name] = np.hstack((v_std, a_std))
     Q_var[class_name] = np.hstack((v_var, a_var))
 
-    m_head_Q = {class_name: [] for class_name in KITTI_CLASS_NAMES}
-    m_no_head_Q = {class_name: [] for class_name in KITTI_CLASS_NAMES}
-    a_Q = {class_name: [] for class_name in KITTI_CLASS_NAMES}
-    for class_name in KITTI_CLASS_NAMES:
-      if not len(Q_var[class_name]):
-        continue
-      m_head_Q[class_name] = [Q_var[class_name][8], Q_var[class_name][9], Q_var[class_name][11],
-                                 Q_var[class_name][15], Q_var[class_name][11]]
-      m_no_head_Q[class_name] = [Q_var[class_name][8], Q_var[class_name][9], Q_var[class_name][11],
-                                    Q_var[class_name][8], Q_var[class_name][9], Q_var[class_name][11]]
-      a_Q[class_name] = [Q_var[class_name][11], Q_var[class_name][10], 0.0, 0.0, 0.0, Q_var[class_name][10]]
-
-    m_R = {class_name: [] for class_name in KITTI_CLASS_NAMES}  # [x, y, z, yaw, w, l, h]
-    m_head_P = {class_name: [] for class_name in KITTI_CLASS_NAMES}  # [x, y, z, yaw, w, l, h]
-    m_no_head_P = {class_name: [] for class_name in KITTI_CLASS_NAMES}  # [x, y, z, yaw, w, l, h]
-    a_P = {class_name: [] for class_name in KITTI_CLASS_NAMES}  # [x, y, z, yaw, w, l, h]
-    a_R = {class_name: [] for class_name in KITTI_CLASS_NAMES}  # [x, y, z, yaw, w, l, h]
-    for class_name in KITTI_CLASS_NAMES:
-      if not len(R_var[class_name]):
-        continue
-      m_R[class_name] = [R_var[class_name][0], R_var[class_name][1], R_var[class_name][3]]
-      m_head_P[class_name] = [R_var[class_name][0], R_var[class_name][1], R_var[class_name][3],
-                                 R_var_vel[class_name][7], R_var_vel[class_name][3]]
-      m_no_head_P[class_name] = [R_var[class_name][0], R_var[class_name][1], R_var[class_name][3],
-                                    R_var_vel[class_name][0], R_var_vel[class_name][1], R_var_vel[class_name][3]]
-      a_P[class_name] = [R_var[class_name][3], R_var[class_name][2], R_var[class_name][4], R_var[class_name][5], R_var[class_name][6],
-                            R_var_vel[class_name][2]]
-      a_R[class_name] = [R_var[class_name][3], R_var[class_name][2], R_var[class_name][4], R_var[class_name][5], R_var[class_name][6]]
-
-
     # m_head_Q = {class_name: [] for class_name in KITTI_CLASS_NAMES}
     # m_no_head_Q = {class_name: [] for class_name in KITTI_CLASS_NAMES}
     # a_Q = {class_name: [] for class_name in KITTI_CLASS_NAMES}
     # for class_name in KITTI_CLASS_NAMES:
     #   if not len(Q_var[class_name]):
     #     continue
-    #   m_head_Q[class_name] = [Q_var[class_name][0], Q_var[class_name][1], Q_var[class_name][3],
+    #   m_head_Q[class_name] = [Q_var[class_name][8], Q_var[class_name][9], Q_var[class_name][11],
     #                              Q_var[class_name][15], Q_var[class_name][11]]
-    #   m_no_head_Q[class_name] = [Q_var[class_name][0], Q_var[class_name][1], Q_var[class_name][3],
+    #   m_no_head_Q[class_name] = [Q_var[class_name][8], Q_var[class_name][9], Q_var[class_name][11],
     #                                 Q_var[class_name][8], Q_var[class_name][9], Q_var[class_name][11]]
-    #   a_Q[class_name] = [Q_var[class_name][3], Q_var[class_name][2], 0.0, 0.0, 0.0, Q_var[class_name][10]]
+    #   a_Q[class_name] = [Q_var[class_name][11], Q_var[class_name][10], 0.0, 0.0, 0.0, Q_var[class_name][10]]
     #
     # m_R = {class_name: [] for class_name in KITTI_CLASS_NAMES}  # [x, y, z, yaw, w, l, h]
     # m_head_P = {class_name: [] for class_name in KITTI_CLASS_NAMES}  # [x, y, z, yaw, w, l, h]
@@ -712,6 +398,36 @@ if __name__ == '__main__':
     #   a_P[class_name] = [R_var[class_name][3], R_var[class_name][2], R_var[class_name][4], R_var[class_name][5], R_var[class_name][6],
     #                         R_var_vel[class_name][2]]
     #   a_R[class_name] = [R_var[class_name][3], R_var[class_name][2], R_var[class_name][4], R_var[class_name][5], R_var[class_name][6]]
+
+
+    m_head_Q = {class_name: [] for class_name in KITTI_CLASS_NAMES}
+    m_no_head_Q = {class_name: [] for class_name in KITTI_CLASS_NAMES}
+    a_Q = {class_name: [] for class_name in KITTI_CLASS_NAMES}
+    for class_name in KITTI_CLASS_NAMES:
+      if not len(Q_var[class_name]):
+        continue
+      m_head_Q[class_name] = [Q_var[class_name][0], Q_var[class_name][1], Q_var[class_name][3],
+                                 Q_var[class_name][15], Q_var[class_name][11]]
+      m_no_head_Q[class_name] = [Q_var[class_name][0], Q_var[class_name][1], Q_var[class_name][3],
+                                    Q_var[class_name][8], Q_var[class_name][9], Q_var[class_name][11]]
+      a_Q[class_name] = [Q_var[class_name][3], Q_var[class_name][2], 0.0, 0.0, 0.0, Q_var[class_name][10]]
+
+    m_R = {class_name: [] for class_name in KITTI_CLASS_NAMES}  # [x, y, z, yaw, w, l, h]
+    m_head_P = {class_name: [] for class_name in KITTI_CLASS_NAMES}  # [x, y, z, yaw, w, l, h]
+    m_no_head_P = {class_name: [] for class_name in KITTI_CLASS_NAMES}  # [x, y, z, yaw, w, l, h]
+    a_P = {class_name: [] for class_name in KITTI_CLASS_NAMES}  # [x, y, z, yaw, w, l, h]
+    a_R = {class_name: [] for class_name in KITTI_CLASS_NAMES}  # [x, y, z, yaw, w, l, h]
+    for class_name in KITTI_CLASS_NAMES:
+      if not len(R_var[class_name]):
+        continue
+      m_R[class_name] = [R_var[class_name][0], R_var[class_name][1], R_var[class_name][3]]
+      m_head_P[class_name] = [R_var[class_name][0], R_var[class_name][1], R_var[class_name][3],
+                                 R_var_vel[class_name][7], R_var_vel[class_name][3]]
+      m_no_head_P[class_name] = [R_var[class_name][0], R_var[class_name][1], R_var[class_name][3],
+                                    R_var_vel[class_name][0], R_var_vel[class_name][1], R_var_vel[class_name][3]]
+      a_P[class_name] = [R_var[class_name][3], R_var[class_name][2], R_var[class_name][4], R_var[class_name][5], R_var[class_name][6],
+                            R_var_vel[class_name][2]]
+      a_R[class_name] = [R_var[class_name][3], R_var[class_name][2], R_var[class_name][4], R_var[class_name][5], R_var[class_name][6]]
 
   print('m_head_P = ', m_head_P)
   print('m_head_Q = ', m_head_Q)

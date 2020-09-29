@@ -26,58 +26,81 @@ class TrackerGenerator(object):
         self.imm_on = False
         self.m_yaw_pos = -1
         self.a_yaw_pos = -1
-        # for tracking_name in NUSCENES_TRACKING_NAMES:
-        if tracking_name == 'bus': # motional
-            self.head_measure_on = True
-            self.head_track_on = True
-            self.association_metrics = ['mdist']
-            self.da_state_on = np.array([True, True, True, False, True, True, True])
-        elif tracking_name == 'car' or tracking_name=='Car': # motional
-            # self.imm_on = True
-            self.head_measure_on = True
-            self.head_track_on = True
-            self.association_metrics = ['mdist']
-            self.da_state_on = np.array([True, True, True, False, True, True, True])
-        elif tracking_name == 'truck':
-            self.head_measure_on = True
-            self.head_track_on = True
-            self.association_metrics = ['mdist']
-            self.da_state_on = np.array([True, True, True, False, True, True, True])
-        elif tracking_name == 'motorcycle':
-            # self.imm_on = True
-            # self.head_measure_on = False
-            # self.head_track_on = True
-            # self.da_state_on = np.array([True, True, False, False, True, True, True])
-            # self.association_metrics = ['mdist']
-            self.head_measure_on = True
-            self.head_track_on = True
-            self.da_state_on = np.array([True, True, True, False, True, True, True])
-            self.association_metrics = ['mdist']
-        elif tracking_name == 'pedestrian' or tracking_name =='Pedestrian':
-            # self.imm_on = True
-            self.head_measure_on = False
-            self.head_track_on = False
-            self.da_state_on = np.array([True, True, False, False, False, False, True])
-            self.association_metrics = ['mdist']
-        elif tracking_name == 'bicycle' or tracking_name =='Cyclist': # holonomic
-            # self.imm_on = True
-            # self.head_measure_on = True # False
-            # self.head_track_on = True
-            # self.association_metrics = ['mdist']
-            # self.da_state_on = np.array([True, True, True, False, True, True, True])
-            self.head_measure_on = False
-            self.head_track_on = False
-            self.association_metrics = ['mdist']
-            self.da_state_on = np.array([True, True, False, False, False, False, True])
-        elif tracking_name == 'trailer':
-            self.head_measure_on = False
-            self.head_track_on = True
-            self.association_metrics = ['mdist']
-            self.da_state_on = np.array([True, True, False, False, True, False, True])
-        else:
-            assert False
+        # # for tracking_name in NUSCENES_TRACKING_NAMES:
+        # if tracking_name == 'bus': # motional
+        #     self.head_measure_on = True
+        #     self.head_track_on = True
+        #     self.association_metrics = ['mdist']
+        #     self.da_state_on = np.array([True, True, True, False, True, True, True])
+        # elif tracking_name == 'car' or tracking_name=='Car': # motional
+        #     # self.imm_on = True
+        #     self.head_measure_on = True
+        #     self.head_track_on = True
+        #     self.association_metrics = ['mdist']
+        #     self.da_state_on = np.array([True, True, True, False, True, True, True])
+        # elif tracking_name == 'truck':
+        #     self.head_measure_on = True
+        #     self.head_track_on = True
+        #     self.association_metrics = ['mdist']
+        #     self.da_state_on = np.array([True, True, True, False, True, True, True])
+        # elif tracking_name == 'motorcycle':
+        #     # self.imm_on = True
+        #     # self.head_measure_on = False
+        #     # self.head_track_on = True
+        #     # self.da_state_on = np.array([True, True, False, False, True, True, True])
+        #     # self.association_metrics = ['mdist']
+        #     self.head_measure_on = True
+        #     self.head_track_on = True
+        #     self.da_state_on = np.array([True, True, True, False, True, True, True])
+        #     self.association_metrics = ['mdist']
+        # elif tracking_name == 'pedestrian' or tracking_name =='Pedestrian':
+        #     # self.imm_on = True
+        #     self.head_measure_on = False
+        #     self.head_track_on = False
+        #     self.da_state_on = np.array([True, True, False, False, False, False, True])
+        #     self.association_metrics = ['mdist']
+        # elif tracking_name == 'bicycle' or tracking_name =='Cyclist': # holonomic
+        #     # self.imm_on = True
+        #     # self.head_measure_on = True # False
+        #     # self.head_track_on = True
+        #     # self.association_metrics = ['mdist']
+        #     # self.da_state_on = np.array([True, True, True, False, True, True, True])
+        #     self.head_measure_on = False
+        #     self.head_track_on = False
+        #     self.association_metrics = ['mdist']
+        #     self.da_state_on = np.array([True, True, False, False, False, False, True])
+        # elif tracking_name == 'trailer':
+        #     self.head_measure_on = False
+        #     self.head_track_on = True
+        #     self.association_metrics = ['mdist']
+        #     self.da_state_on = np.array([True, True, False, False, True, False, True])
+        # else:
+        #     assert False
 
         cov = Covariance(covariance_id, tracking_name)
+        gammaQrot = 0.1
+        gammaRrot = 0.3
+        # print(tracking_name, cov.m_head_Q[2, 2], cov.m_head_P[2, 2])
+        if cov.m_head_Q[2, 2] < gammaQrot:
+            self.head_track_on = True
+            if cov.m_head_P[2, 2] < gammaRrot:
+                self.head_measure_on = True
+                self.da_state_on = np.array([True, True, True, False, True, True, True]) # track and measure
+            else:
+                self.head_measure_on = False
+                self.da_state_on = np.array([True, True, False, False, False, False, True]) # not track and not measure
+        else:
+            self.head_track_on = False
+            if cov.m_head_P[2, 2] < gammaRrot:
+                self.da_state_on = np.array([True, True, False, False, True, True, True]) # track but not measure
+                self.head_measure_on = True
+            else:
+                self.head_measure_on = False
+                self.da_state_on = np.array([True, True, False, False, False, False, True]) # not track and not measure
+
+
+        self.association_metrics = ['mdist']
+
         self.mmodel = {}
         if self.head_measure_on:  # x, y, theta
             self.m_state_on = np.array([True, True, True, False, False, False, False])
@@ -134,15 +157,10 @@ class TrackerGenerator(object):
             self.dim_a_x = 5
             self.dim_a_z = 5
             self.a_state_on = np.array([False, False, True, True, True, True, True])
-            # self.a_da_state_on = self.a_da_state_on[-self.dim_a_z-1:-1]
             self.amodel = {}
             self.amodel['P'] = cov.a_P[0:self.dim_a_x, 0:self.dim_a_x]
             self.amodel['Q'] = cov.a_Q[0:self.dim_a_x, 0:self.dim_a_x]
             self.amodel['R'] = cov.a_R[0:self.dim_a_z, 0:self.dim_a_z]
-
-        # self.state_on = np.concatenate((self.m_state_on, self.a_state_on))
-        # self.state_cov_on = self.state_on.reshape(-1, 1).dot(self.state_on.reshape(-1, 1).T)
-        # self.dim_z = np.count_nonzero(self.state_on)
 
     def generate_tracker(self, z, info):
         # z: x, y, yaw, z, w, l, h

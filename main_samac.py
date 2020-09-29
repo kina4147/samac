@@ -354,7 +354,7 @@ def read_calib_file(filepath):
 
 def track_kitti(tracking_name, data_split, covariance_id, assocition_metric, association_method, save_root):
 
-    viz_on = False
+    viz_on = False # True
     if viz_on:
         plt.ion()
         fig = plt.figure(figsize=(10, 10))
@@ -403,7 +403,7 @@ def track_kitti(tracking_name, data_split, covariance_id, assocition_metric, ass
             sys.stdout.flush()
             save_trk_file = os.path.join(save_trk_dir, '%06d.txt' % frame);
             save_trk_file = open(save_trk_file, 'w')
-
+            # print(print_str)
             # get irrelevant information associated with an object, not used for associationg
             ori_array = seq_dets[seq_dets[:, 0] == frame, -1].reshape((-1, 1))  # orientation
             other_array = seq_dets[seq_dets[:, 0] == frame, 1:7]  # other information, e.g, 2D box, ...
@@ -417,14 +417,49 @@ def track_kitti(tracking_name, data_split, covariance_id, assocition_metric, ass
             qimu_to_world = Quaternion(matrix=seq_oxts[frame].T_w_imu[0:3, 0:3])
             qworld_to_imu = qimu_to_world.inverse
 
+
+            qcam_to_world = qimu_to_world * qcam_to_imu
+            qworld_to_cam = qimu_to_cam * qworld_to_imu
+            world_to_cam = np.linalg.inv(cam_to_world)
+            ego_gyaw = quaternion_yaw(qimu_to_world)
+            ego_gpos = seq_oxts[frame].T_w_imu[0:2, 3]
             # pose ego to world
             if len(dets) > 0:
                 w_rot_z = []
                 for rot_y in dets[:, 6]:
                     qlyaw = Quaternion(axis=[0, 1, 0], radians=rot_y)
-                    qgyaw = qimu_to_world * qcam_to_imu * qlyaw
+
+                    # b4ql = quaternion_to_euler(qlyaw)
+                    qgyaw = qcam_to_world * qlyaw
                     rpy = quaternion_to_euler(qgyaw)
                     w_rot_z.append(rpy[2])
+
+                    # tmp = qworld_to_cam * qgyaw
+                    # tmp2 = quaternion_to_euler(tmp)
+                    # if abs(tmp2[0]) > 1.0:
+                    #     if tmp2[1] > 0:
+                    #         rrot_y = np.pi - tmp2[1]
+                    #     else:
+                    #         rrot_y = -np.pi - tmp2[1]
+                    # else:
+                    #     rrot_y = tmp2[1]
+                    #
+                    #
+                    #
+                    # tmp_qgyaw = Quaternion(axis=[0, 0, 1], radians=rpy[2])
+                    # tmp_qlyaw = qworld_to_cam * tmp_qgyaw
+                    # # print(qlyaw)
+                    # tmp_rpy = quaternion_to_euler(tmp_qlyaw)
+                    # if abs(tmp_rpy[2]) > 1.0:
+                    #     if tmp_rpy[1] > 0:
+                    #         b2_rot_y = np.pi - tmp_rpy[1]
+                    #     else:
+                    #         b2_rot_y = -np.pi - tmp_rpy[1]
+                    # else:
+                    #     b2_rot_y = tmp_rpy[1]
+                    #
+                    # if abs(b2_rot_y - rot_y) > 0.2:
+                    #     print("Wrong: " , rpy[2], rot_y, rrot_y, b2_rot_y, tmp_rpy)
                 w_rot_z = np.stack(w_rot_z)
                 glo_pose = np.dot(cam_to_world[0:3, 0:3], loc_pose.T) + cam_to_world[0:3,3].reshape(-1, 1)
                 dets[:, 3:6] = np.transpose(glo_pose)
@@ -433,7 +468,7 @@ def track_kitti(tracking_name, data_split, covariance_id, assocition_metric, ass
             dets_all = {'dets': dets, 'info': additional_info}
 
             start_time = time.time()
-            trackers, priors = mot_tracker.update(dets_all=dets_all)
+            trackers, priors = mot_tracker.update(dets_all=dets_all, ego_gpos = ego_gpos, ego_gyaw = ego_gyaw)
             cycle_time = time.time() - start_time
             total_time += cycle_time
 
@@ -441,17 +476,27 @@ def track_kitti(tracking_name, data_split, covariance_id, assocition_metric, ass
             if len(trackers) > 0:
                 # pose world to ego
                 glo_pose = trackers[:, 3:6].copy()
-                world_to_cam = np.linalg.inv(cam_to_world)
                 loc_pose = np.dot(world_to_cam[0:3, 0:3], glo_pose.T) + world_to_cam[0:3, 3].reshape(-1, 1)
                 trackers[:, 3:6] = np.transpose(loc_pose)
                 c_rot_y = []
                 w_rot_z = trackers[:, 6].copy()
                 for rot_z in w_rot_z:
+
                     qgyaw = Quaternion(axis=[0, 0, 1], radians=rot_z)
-                    qlyaw = qimu_to_cam * qworld_to_imu * qgyaw
+                    qlyaw = qworld_to_cam * qgyaw
+                    # print(qlyaw)
                     rpy = quaternion_to_euler(qlyaw)
-                    c_rot_y.append(rpy[1])
+                    # print(rot_z, rpy)
+                    if abs(rpy[2]) > 1.0:
+                        if rpy[1] > 0:
+                            rot_y = np.pi - rpy[1]
+                        else:
+                            rot_y = -np.pi - rpy[1]
+                    else:
+                        rot_y = rpy[1]
+                    c_rot_y.append(rot_y)
                 c_rot_y = np.stack(c_rot_y)
+                # print("==>", trackers[:, 6], w_rot_z, c_rot_y)
                 trackers[:, 6] = c_rot_y
 
             # qcam_to_imu.inverse * qimu_to_world.inverse * Quaternion(axis=(0.0, 0.0, 1.0), radians=)
@@ -500,7 +545,7 @@ def track_kitti(tracking_name, data_split, covariance_id, assocition_metric, ass
 
                 for det in ldets:
                     ax.scatter(det[3], det[5], color='orange', s=80)
-                    ax.add_line(mlines.Line2D([det[3], det[3] + 10*np.cos(det[6])], [det[5], det[5] - 10*np.sin(det[6])], color='orange', lw=2))
+                    ax.add_line(mlines.Line2D([det[3], det[3] + 10*np.cos(-det[6])], [det[5], det[5] + 10*np.sin(-det[6])], color='orange', lw=2))
 
                 for track in gtrackers:
                     ax.scatter(track[3], track[4], color='black')
@@ -510,7 +555,10 @@ def track_kitti(tracking_name, data_split, covariance_id, assocition_metric, ass
                 for track in trackers:
                     ax.scatter(track[3], track[5], color='black')
                     ax.text(track[3], track[5], "T({})".format(int(track[7])), fontsize=10)
-                    ax.add_line(mlines.Line2D([track[3], track[3] + 5*np.cos(track[6])], [track[5], track[5] + 5*np.sin(track[6])], color='black'))
+                    ax.add_line(mlines.Line2D([track[3], track[3] + 5*np.cos(-track[6])], [track[5], track[5] + 5*np.sin(-track[6])], color='black'))
+                ax.add_patch(
+                    patches.Circle((ego_gpos[0], ego_gpos[1]), 2.0, edgecolor='black', facecolor='yellow', fill=True))
+                ax.add_line(mlines.Line2D([ego_gpos[0], ego_gpos[0] + 5*np.cos(ego_gyaw)], [ego_gpos[1], ego_gpos[1] + 5*np.sin(ego_gyaw)], color='black'))
 
                 ax.add_patch(
                     patches.Rectangle((-1.5, -3.0), 3.0, 6.0, edgecolor='black', facecolor='yellow', fill=True))
